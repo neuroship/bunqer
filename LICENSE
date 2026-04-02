@@ -1,0 +1,32 @@
+bunqer - Self-hosted accounting for bunq bank users.
+
+Copyright (C) 2025 bunqer contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/agpl-3.0.html>.
+
+--- Additional Terms (per Section 7 of AGPL-3.0) ---
+
+Attribution Requirement:
+
+Any modified version, derivative work, or product that incorporates
+substantial portions of this software must prominently mention "bunqer"
+in at least one of the following locations:
+
+  1. The application's user-facing "About" page or equivalent section
+  2. The project's README or main documentation
+  3. The application's startup output or splash screen
+
+This attribution must include the name "bunqer" and a link to the
+original repository. This requirement applies in addition to the
+standard AGPL-3.0 license obligations.

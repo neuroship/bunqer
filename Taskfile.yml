@@ -1,0 +1,126 @@
+version: '3'
+
+vars:
+  API_DIR: api
+  UI_DIR: ui
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  install:
+    desc: Install all dependencies
+    cmds:
+      - task: install:api
+      - task: install:ui
+
+  install:api:
+    desc: Install API dependencies with uv
+    dir: "{{.API_DIR}}"
+    cmds:
+      - uv sync
+
+  install:ui:
+    desc: Install UI dependencies with npm
+    dir: "{{.UI_DIR}}"
+    cmds:
+      - npm install
+
+  dev:
+    desc: Run both API and UI in development mode
+    deps:
+      - dev:api
+      - dev:ui
+
+  dev:api:
+    desc: Run FastAPI development server
+    dir: "{{.API_DIR}}"
+    cmds:
+      - direnv exec . uv run alembic upgrade head
+      - direnv exec . uv run uvicorn src.vibe_accountant.main:app --reload --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000} --log-level debug
+
+  dev:ui:
+    desc: Run Vite development server
+    dir: "{{.UI_DIR}}"
+    cmds:
+      - direnv exec . npm run dev
+
+  build:
+    desc: Build both API and UI for production
+    cmds:
+      - task: build:ui
+
+  build:ui:
+    desc: Build UI for production
+    dir: "{{.UI_DIR}}"
+    cmds:
+      - npm run build
+
+  db:migrate:
+    desc: Run database migrations
+    dir: "{{.API_DIR}}"
+    cmds:
+      - uv run alembic upgrade head
+
+  db:rollback:
+    desc: Rollback last migration
+    dir: "{{.API_DIR}}"
+    cmds:
+      - uv run alembic downgrade -1
+
+  db:revision:
+    desc: Create a new migration revision
+    dir: "{{.API_DIR}}"
+    cmds:
+      - uv run alembic revision --autogenerate -m "{{.CLI_ARGS}}"
+
+  db:reset:
+    desc: Reset database (drop all tables and re-migrate)
+    dir: "{{.API_DIR}}"
+    cmds:
+      - uv run alembic downgrade base
+      - uv run alembic upgrade head
+
+  db:drop:
+    desc: Drop project tables and re-migrate (use when downgrade fails)
+    dir: "{{.API_DIR}}"
+    cmds:
+      - |
+        uv run python -c "
+        from src.vibe_accountant.models import Base
+        from src.vibe_accountant.database import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text('DROP TABLE IF EXISTS alembic_version'))
+            conn.commit()
+        Base.metadata.drop_all(bind=engine)
+        print('Project tables dropped.')
+        "
+      - uv run alembic upgrade head
+
+  infra:up:
+    desc: Start infrastructure (PostgreSQL) with Docker Compose
+    cmds:
+      - docker compose up -d
+
+  auth:hash-password:
+    desc: Generate bcrypt hash for AUTH_PASSWORD_HASH
+    dir: "{{.API_DIR}}"
+    cmds:
+      - |
+        uv run python -c "
+        import getpass
+        from src.vibe_accountant.auth import generate_password_hash
+        p = getpass.getpass('Password: ')
+        print(generate_password_hash(p))
+        "
+
+  lint:
+    desc: Run linters
+    cmds:
+      - task: lint:api
+      - task: lint:ui
+
+

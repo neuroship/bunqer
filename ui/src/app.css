@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom color palette as CSS variables */
+:root {
+  --va-canvas: #121417;
+  --va-subtle: #1c1f24;
+  --va-border: #2e3339;
+  --va-hover: #252a30;
+  --va-active: #2e3339;
+  --va-text: #c5c9ce;
+  --va-muted: #7d8590;
+  --va-accent: #6b9eff;
+  --va-success: #57ab5a;
+  --va-danger: #e5534b;
+  --va-warning: #c69026;
+}
+
+/* Global styles */
+body {
+  font-family: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  background-color: var(--va-canvas);
+  color: var(--va-text);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--va-canvas);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--va-border);
+  border-radius: 4px;
+  border: 2px solid var(--va-canvas);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--va-muted);
+}
+
+/* Privacy blur for sensitive content */
+.privacy-blur {
+  filter: blur(6px);
+  user-select: none;
+  pointer-events: none;
+  transition: filter 0.2s ease;
+}
