@@ -119,7 +119,7 @@
 </script>
 
 <div>
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Clients</h1>
     <Button onclick={() => showCreateModal = true}>
       New Client
@@ -140,7 +140,7 @@
     {:else}
       <div class="space-y-2">
         {#each clients as client}
-          <div class="flex items-center justify-between p-4 bg-va-hover/50 rounded-lg border border-va-border/30 hover:border-va-border transition-all">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 bg-va-hover/50 rounded-lg border border-va-border/30 hover:border-va-border transition-all">
             <div>
               <div class="text-sm text-va-text font-medium">{client.name}</div>
               <div class="text-sm text-va-muted mt-0.5">
@@ -187,7 +187,7 @@
     required
   />
 
-  <div class="grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
     <Input
       label="Email"
       type="email"
@@ -207,7 +207,7 @@
     placeholder="Street address"
   />
 
-  <div class="grid grid-cols-3 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
     <Input
       label="City"
       bind:value={form.city}
@@ -225,7 +225,7 @@
     />
   </div>
 
-  <div class="grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
     <Input
       label="VAT Number"
       bind:value={form.vat_number}
@@ -257,7 +257,7 @@
     required
   />
 
-  <div class="grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
     <Input
       label="Email"
       type="email"
@@ -277,7 +277,7 @@
     placeholder="Street address"
   />
 
-  <div class="grid grid-cols-3 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
     <Input
       label="City"
       bind:value={form.city}
@@ -295,7 +295,7 @@
     />
   </div>
 
-  <div class="grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
     <Input
       label="VAT Number"
       bind:value={form.vat_number}

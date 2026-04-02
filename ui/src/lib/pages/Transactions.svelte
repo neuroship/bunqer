@@ -635,9 +635,9 @@
 </script>
 
 <div>
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Transactions</h1>
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
       {#if hasActiveFilters}
         <button onclick={clearFilters} class="text-sm text-va-muted hover:text-va-text transition-colors">
           Clear filters
@@ -739,7 +739,7 @@
 
       <!-- Collapsible Filters -->
       {#if showFilters}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-va-border">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-va-border">
           <!-- Account -->
           <div>
             <label class="block text-xs text-va-muted mb-1">Account</label>
@@ -841,7 +841,7 @@
       </div>
     {:else}
       <div class="overflow-x-auto rounded-lg">
-        <table class="w-full">
+        <table class="w-full min-w-[600px]">
           <thead>
             <tr class="border-b border-va-border">
               {#each allColumns as column}
@@ -1160,7 +1160,7 @@
         <span class="block text-sm text-va-muted mb-2">Conditions to Add</span>
         <div class="space-y-2">
           {#each newConditions as condition, index}
-            <div class="flex items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-accent/30">
+            <div class="flex flex-wrap items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-accent/30">
               <select
                 value={condition.field}
                 onchange={(e) => {
@@ -1260,7 +1260,7 @@
         <span class="block text-sm text-va-muted mb-2">Conditions</span>
         <div class="space-y-2">
           {#each ruleForm.conditions as condition, index}
-            <div class="flex items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-border/30">
+            <div class="flex flex-wrap items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-border/30">
               <select
                 value={condition.field}
                 onchange={(e) => updateRuleConditionField(index, e.target.value)}

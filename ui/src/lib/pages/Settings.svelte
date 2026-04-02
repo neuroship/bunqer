@@ -226,7 +226,7 @@
       <Card class="lg:col-span-2">
         <h3 class="text-sm font-medium text-va-text mb-4">Company Details</h3>
 
-        <div class="grid grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
           <Input label="Company Name" bind:value={form.name} placeholder="Your Company B.V." />
           <Input label="Email" bind:value={form.email} placeholder="info@yourcompany.nl" />
           <Input label="Address" bind:value={form.address} placeholder="Streetname 123" />
@@ -238,13 +238,13 @@
         </div>
 
         <h3 class="text-sm font-medium text-va-text mb-4 mt-2 pt-3 border-t border-va-border">Tax & Legal</h3>
-        <div class="grid grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
           <Input label="VAT Number" bind:value={form.vat_number} placeholder="NL123456789B01" />
           <Input label="KvK Number" bind:value={form.chamber_of_commerce} placeholder="12345678" />
         </div>
 
         <h3 class="text-sm font-medium text-va-text mb-4 mt-2 pt-3 border-t border-va-border">Bank Details</h3>
-        <div class="grid grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
           <Input label="IBAN" bind:value={form.iban} placeholder="NL00 BANK 1234 5678 90" />
           <Input label="Bank Name" bind:value={form.bank_name} placeholder="ING Bank" />
         </div>

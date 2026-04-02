@@ -1,7 +1,7 @@
 <script>
   import { getPrivacyMode, togglePrivacyMode } from '../privacy.svelte.js'
 
-  let { currentPage, onNavigate, username = null, onLogout = () => {} } = $props()
+  let { currentPage, onNavigate, username = null, onLogout = () => {}, open = $bindable(false) } = $props()
 
   let privacyOn = $derived(getPrivacyMode())
 
@@ -14,9 +14,23 @@
     { id: 'settings', label: 'Settings', icon: 'icon-[tabler--building]' },
     { id: 'onboarding', label: 'Setup', icon: 'icon-[tabler--settings]' }
   ]
+
+  function handleNavigate(id) {
+    onNavigate(id)
+    open = false
+  }
 </script>
 
-<aside class="w-56 bg-va-subtle border-r border-va-border h-screen flex flex-col sticky top-0">
+<!-- Mobile overlay backdrop -->
+{#if open}
+  <div
+    class="fixed inset-0 bg-black/50 z-40 lg:hidden"
+    onclick={() => open = false}
+    role="presentation"
+  ></div>
+{/if}
+
+<aside class="fixed inset-y-0 left-0 z-50 w-56 bg-va-subtle border-r border-va-border h-screen flex flex-col transition-transform duration-200 lg:sticky lg:top-0 lg:translate-x-0 {open ? 'translate-x-0' : '-translate-x-full'}">
   <div class="px-5 py-4 border-b border-va-border">
     <h1 class="text-base font-semibold text-va-text">Bunqer</h1>
     <p class="text-xs text-va-muted mt-1">Financial Management</p>
@@ -27,7 +41,7 @@
       {#each menuItems as item}
         <li>
           <button
-            onclick={() => onNavigate(item.id)}
+            onclick={() => handleNavigate(item.id)}
             class="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-left text-sm transition-all
                    {currentPage === item.id
                      ? 'bg-va-active text-va-text shadow-soft'

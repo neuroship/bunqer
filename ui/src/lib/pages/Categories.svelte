@@ -406,9 +406,9 @@
 </script>
 
 <div>
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Categories</h1>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap">
       <button
         onclick={triggerImport}
         disabled={importing}
@@ -455,8 +455,8 @@
             <div class="flex items-center justify-between p-4">
               {#if editingCategory?.id === category.id}
                 <!-- Editing mode -->
-                <div class="flex-1 flex items-center gap-4">
-                  <div class="flex gap-1">
+                <div class="flex-1 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                  <div class="flex gap-1 flex-wrap">
                     {#each colorOptions as color}
                       <button
                         onclick={() => editingCategory.color = color}
@@ -483,7 +483,7 @@
                     placeholder="Description (optional)"
                   />
                 </div>
-                <div class="flex items-center gap-2 ml-4">
+                <div class="flex items-center gap-2 sm:ml-4">
                   <button
                     onclick={saveCategory}
                     disabled={saving}
@@ -720,7 +720,7 @@
     <span class="block text-sm text-va-muted mb-2">Conditions</span>
     <div class="space-y-2">
       {#each ruleForm.conditions as condition, index}
-        <div class="flex items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-border/30">
+        <div class="flex flex-wrap items-center gap-2 p-3 bg-va-hover/50 rounded-md border border-va-border/30">
           <select
             value={condition.field}
             onchange={(e) => updateConditionField(index, e.target.value)}

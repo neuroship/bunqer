@@ -324,7 +324,7 @@
 
   <!-- Filters -->
   <Card class="mb-4">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <!-- Account Filter -->
       <div>
         <label for="account-filter" class="block text-xs text-va-muted mb-1">Account</label>

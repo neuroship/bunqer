@@ -265,7 +265,7 @@
 </script>
 
 <div>
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Invoices</h1>
     <Button onclick={openCreateModal}>
       New Invoice
@@ -285,7 +285,7 @@
       </div>
     {:else}
       <div class="overflow-x-auto rounded-lg">
-        <table class="w-full">
+        <table class="w-full min-w-[700px]">
           <thead>
             <tr class="border-b border-va-border">
               <th class="text-left py-3 px-3 text-sm text-va-muted font-medium">Invoice #</th>
@@ -407,7 +407,7 @@
     <!-- Invoice Details Row -->
     <div>
       <h4 class="text-xs uppercase tracking-wider text-va-muted mb-3 font-medium">Invoice Details</h4>
-      <div class="grid grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label class="block text-sm text-va-muted mb-1.5">Invoice Number <span class="text-va-danger">*</span></label>
           <input
@@ -483,8 +483,8 @@
     <!-- Line Items -->
     <div>
       <h4 class="text-xs uppercase tracking-wider text-va-muted mb-3 font-medium">Line Items</h4>
-      <div class="rounded-lg border border-va-border overflow-hidden">
-        <table class="w-full">
+      <div class="rounded-lg border border-va-border overflow-x-auto">
+        <table class="w-full min-w-[500px]">
           <thead>
             <tr class="bg-va-canvas/50">
               <th class="text-left py-2 px-3 text-xs text-va-muted font-medium">Description</th>
@@ -566,7 +566,7 @@
 
     <!-- Totals -->
     <div class="flex justify-end">
-      <div class="w-72 space-y-1.5">
+      <div class="w-full sm:w-72 space-y-1.5">
         <div class="flex justify-between text-sm">
           <span class="text-va-muted">Subtotal</span>
           <span class="text-va-text">{formatCurrency(subtotal)}</span>
@@ -597,7 +597,7 @@
   </div>
 
   <!-- Actions -->
-  <div class="flex items-center justify-between mt-5 pt-4 border-t border-va-border">
+  <div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 mt-5 pt-4 border-t border-va-border">
     <Button variant="secondary" onclick={() => showModal = false}>
       Cancel
     </Button>

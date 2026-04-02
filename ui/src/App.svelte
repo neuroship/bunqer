@@ -18,6 +18,7 @@
   let authenticated = $state(isAuthenticated())
   let username = $state(getUsername())
   let unsubscribe = null
+  let sidebarOpen = $state(false)
 
   function navigate(page) {
     currentPage = page
@@ -117,9 +118,21 @@
   <Login onLogin={handleLogin} />
 {:else}
   <div class="flex min-h-screen bg-va-canvas">
-    <Sidebar {currentPage} onNavigate={navigate} {username} onLogout={handleLogout} />
+    <Sidebar {currentPage} onNavigate={navigate} {username} onLogout={handleLogout} bind:open={sidebarOpen} />
 
-    <main class="flex-1 p-6">
+    <main class="flex-1 p-3 sm:p-4 lg:p-6 min-w-0">
+      <!-- Mobile header with hamburger -->
+      <div class="flex items-center gap-3 mb-3 lg:hidden">
+        <button
+          onclick={() => sidebarOpen = true}
+          class="p-2 rounded-lg text-va-muted hover:text-va-text hover:bg-va-hover transition-colors"
+          aria-label="Open menu"
+        >
+          <span class="icon-[tabler--menu-2] w-5 h-5"></span>
+        </button>
+        <span class="text-sm font-semibold text-va-text">Bunqer</span>
+      </div>
+
       {#if syncStatus}
         <div class="fixed top-4 right-4 z-40 bg-va-subtle border border-va-border rounded-lg px-4 py-2 flex items-center gap-3 shadow-soft">
           <div class="w-4 h-4 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
