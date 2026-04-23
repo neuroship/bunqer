@@ -263,7 +263,8 @@ export const transactions = {
     const query = new URLSearchParams(params).toString()
     return request(`/transactions/stats${query ? `?${query}` : ''}`)
   },
-  applyRules: () => request('/transactions/apply-rules', { method: 'POST' })
+  applyRules: () => request('/transactions/apply-rules', { method: 'POST' }),
+  matchDocuments: () => request('/transactions/match-documents', { method: 'POST' })
 }
 
 // Categories

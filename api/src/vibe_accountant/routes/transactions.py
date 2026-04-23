@@ -321,6 +321,18 @@ async def apply_categorization_rules(db: Session = Depends(get_db)):
     return result
 
 
+@router.post("/match-documents")
+async def match_documents(db: Session = Depends(get_db)):
+    """Match documents to transactions by reference or amount+name."""
+    from ..services import match_documents_to_transactions
+
+    matched = match_documents_to_transactions(db)
+    return {
+        "matched": matched,
+        "message": f"Matched {matched} document(s) to transactions" if matched else "No new matches found",
+    }
+
+
 @router.get("/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
     """Get a specific transaction by ID."""

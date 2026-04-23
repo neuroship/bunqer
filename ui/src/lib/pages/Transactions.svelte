@@ -85,6 +85,9 @@
   // Apply rules state
   let applyingRules = $state(false)
 
+  // Match documents state
+  let matchingDocs = $state(false)
+
   // Sync state
   let syncing = $state(false)
 
@@ -468,6 +471,24 @@
     }
   }
 
+  async function matchDocuments() {
+    matchingDocs = true
+    try {
+      const result = await api.transactions.matchDocuments()
+      if (result.matched > 0) {
+        window.showToast?.(result.message, 'success')
+        await loadTransactions()
+      } else {
+        window.showToast?.(result.message, 'info')
+      }
+    } catch (error) {
+      console.error('Failed to match documents:', error)
+      window.showToast?.(error.message, 'error')
+    } finally {
+      matchingDocs = false
+    }
+  }
+
   async function syncTransactions() {
     syncing = true
     try {
@@ -674,7 +695,22 @@
         {/if}
         Apply Rules
       </button>
-      <button 
+      <button
+        onclick={matchDocuments}
+        disabled={matchingDocs}
+        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        title="Match documents to transactions by reference or amount+name"
+      >
+        {#if matchingDocs}
+          <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+        {/if}
+        Match Docs
+      </button>
+      <button
         onclick={() => showFilters = !showFilters}
         class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium {showFilters ? 'bg-va-accent/15 border-va-accent text-va-accent' : 'bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted'}"
       >

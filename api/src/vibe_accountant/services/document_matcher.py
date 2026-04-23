@@ -9,32 +9,26 @@ from ..models import Document, DocumentStatus, Transaction
 def match_documents_to_transactions(db: Session) -> int:
     """Match unmatched documents to transactions.
 
-    For each completed document with invoice_number or payment_reference,
-    check if that value appears (case-insensitive) in any unmatched
-    transaction's description. If found, link them.
+    Two-pass matching:
+    1. Check if invoice_number or payment_reference appears (case-insensitive)
+       in any unmatched transaction's description.
+    2. For documents still unmatched after pass 1, fall back to matching by
+       amount (absolute value) AND vendor_name vs counterparty_name.
 
     Returns count of new matches made.
     """
-    # Get completed documents that have matchable fields
     docs = (
         db.query(Document)
-        .filter(
-            Document.status == DocumentStatus.COMPLETED.value,
-            (Document.invoice_number.isnot(None)) | (Document.payment_reference.isnot(None)),
-        )
+        .filter(Document.status == DocumentStatus.COMPLETED.value)
         .all()
     )
 
     if not docs:
         return 0
 
-    # Get transactions not yet matched to a document and that have a description
     unmatched_txns = (
         db.query(Transaction)
-        .filter(
-            Transaction.document_id.is_(None),
-            Transaction.description.isnot(None),
-        )
+        .filter(Transaction.document_id.is_(None))
         .all()
     )
 
@@ -42,9 +36,10 @@ def match_documents_to_transactions(db: Session) -> int:
         return 0
 
     match_count = 0
+    matched_doc_ids = set()
 
+    # Pass 1: invoice_number / payment_reference in description
     for doc in docs:
-        # Collect search terms from document
         search_terms = []
         if doc.invoice_number:
             search_terms.append(doc.invoice_number.strip())
@@ -56,7 +51,8 @@ def match_documents_to_transactions(db: Session) -> int:
 
         for txn in unmatched_txns:
             if txn.document_id is not None:
-                # Already matched in this run
+                continue
+            if not txn.description:
                 continue
 
             desc_lower = txn.description.lower()
@@ -64,11 +60,49 @@ def match_documents_to_transactions(db: Session) -> int:
                 if term.lower() in desc_lower:
                     txn.document_id = doc.id
                     match_count += 1
+                    matched_doc_ids.add(doc.id)
                     logger.info(
                         f"Matched document {doc.id} ({doc.filename}) "
-                        f"to transaction {txn.id} (term: '{term}')"
+                        f"to transaction {txn.id} (ref: '{term}')"
                     )
-                    break  # One match per transaction is enough
+                    break
+
+    # Pass 2: amount + vendor name fallback
+    for doc in docs:
+        if doc.id in matched_doc_ids:
+            continue
+        if doc.total_amount is None or not doc.vendor_name:
+            continue
+
+        doc_amount = abs(doc.total_amount)
+        doc_vendor_lower = doc.vendor_name.lower().strip()
+
+        if not doc_vendor_lower:
+            continue
+
+        for txn in unmatched_txns:
+            if txn.document_id is not None:
+                continue
+
+            # Match absolute amount
+            if abs(txn.amount) != doc_amount:
+                continue
+
+            # Match vendor name against counterparty name
+            counterparty = txn.counterparty_name or ""
+            if not counterparty:
+                continue
+
+            counterparty_lower = counterparty.lower().strip()
+            if doc_vendor_lower in counterparty_lower or counterparty_lower in doc_vendor_lower:
+                txn.document_id = doc.id
+                match_count += 1
+                matched_doc_ids.add(doc.id)
+                logger.info(
+                    f"Matched document {doc.id} ({doc.filename}) "
+                    f"to transaction {txn.id} (amount+name fallback)"
+                )
+                break  # One match per document in fallback
 
     if match_count > 0:
         db.commit()
