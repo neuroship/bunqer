@@ -471,6 +471,15 @@ def sync_account_transactions_sync(db, bunq_client: BunqClient, account_id: int)
         except Exception as e:
             log(f"    Warning: Failed to apply categorization rules: {e}")
 
+        # Match documents to transactions
+        try:
+            from ..services import match_documents_to_transactions
+            matched_count = match_documents_to_transactions(db)
+            if matched_count > 0:
+                log(f"    Matched {matched_count} documents to transactions")
+        except Exception as e:
+            log(f"    Warning: Failed to match documents: {e}")
+
         # Verify transactions were saved
         saved_count = db.query(Transaction).filter(Transaction.account_id == account.id).count()
         log(f"    Verification: {saved_count} transactions in DB for this account")

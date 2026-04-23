@@ -40,6 +40,7 @@ from .document import (
     DocumentStatus,
     DocumentResponse,
     DocumentListResponse,
+    MatchedTransactionInfo,
 )
 
 __all__ = [
@@ -89,4 +90,5 @@ __all__ = [
     "DocumentStatus",
     "DocumentResponse",
     "DocumentListResponse",
+    "MatchedTransactionInfo",
 ]

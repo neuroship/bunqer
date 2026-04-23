@@ -6,13 +6,21 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..logger import logger
-from ..models import Transaction, TransactionResponse
+from ..models import Document, Transaction, TransactionResponse
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
+
+
+def _to_response(txn: Transaction) -> TransactionResponse:
+    """Convert Transaction ORM object to response, including document_filename."""
+    resp = TransactionResponse.model_validate(txn)
+    if txn.document:
+        resp.document_filename = txn.document.filename
+    return resp
 
 
 @router.get("/debug/db-status")
@@ -147,7 +155,7 @@ async def list_transactions(
     db: Session = Depends(get_db),
 ):
     """List transactions with optional filtering and search."""
-    q = db.query(Transaction)
+    q = db.query(Transaction).options(joinedload(Transaction.document))
 
     # Apply filters
     if account_id:
@@ -220,7 +228,7 @@ async def list_transactions(
 
     logger.info(f"GET /transactions: total={total_count}, returning {len(transactions)} (limit={limit}, offset={offset})")
 
-    return TransactionListResponse(items=transactions, total=total_count)
+    return TransactionListResponse(items=[_to_response(t) for t in transactions], total=total_count)
 
 
 @router.get("/stats")
@@ -309,10 +317,15 @@ async def apply_categorization_rules(db: Session = Depends(get_db)):
 @router.get("/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
     """Get a specific transaction by ID."""
-    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    transaction = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.document))
+        .filter(Transaction.id == transaction_id)
+        .first()
+    )
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    return transaction
+    return _to_response(transaction)
 
 
 @router.patch("/{transaction_id}", response_model=TransactionResponse)
@@ -320,7 +333,12 @@ async def update_transaction(
     transaction_id: int, data: TransactionUpdate, db: Session = Depends(get_db)
 ):
     """Update a transaction's category_id and/or tag."""
-    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    transaction = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.document))
+        .filter(Transaction.id == transaction_id)
+        .first()
+    )
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
@@ -340,7 +358,7 @@ async def update_transaction(
 
     db.commit()
     db.refresh(transaction)
-    return transaction
+    return _to_response(transaction)
 
 
 @router.get("/{transaction_id}/raw")

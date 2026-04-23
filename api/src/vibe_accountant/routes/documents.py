@@ -7,11 +7,11 @@ from decimal import Decimal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
 from ..logger import logger
-from ..models import Document, DocumentListResponse, DocumentResponse, DocumentStatus, DocumentType
+from ..models import Document, DocumentListResponse, DocumentResponse, DocumentStatus, DocumentType, MatchedTransactionInfo
 from ..services import s3
 from ..services.document_processor import (
     denormalize_fields,
@@ -20,6 +20,16 @@ from ..services.document_processor import (
 )
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def _doc_to_response(doc: Document) -> DocumentResponse:
+    """Convert Document ORM object to response, including matched transactions."""
+    resp = DocumentResponse.model_validate(doc)
+    if doc.transactions:
+        resp.matched_transactions = [
+            MatchedTransactionInfo.model_validate(t) for t in doc.transactions
+        ]
+    return resp
 
 ALLOWED_TYPES = {
     "application/pdf",
@@ -135,7 +145,7 @@ async def list_documents(
     db: Session = Depends(get_db),
 ):
     """List documents with filters."""
-    q = db.query(Document)
+    q = db.query(Document).options(selectinload(Document.transactions))
 
     if doc_type:
         q = q.filter(Document.doc_type == doc_type.value)
@@ -171,8 +181,15 @@ async def list_documents(
 
     total = q.count()
     docs = q.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+    # Deduplicate (selectinload with offset/limit can sometimes cause dupes)
+    seen = set()
+    unique_docs = []
+    for d in docs:
+        if d.id not in seen:
+            seen.add(d.id)
+            unique_docs.append(d)
     return DocumentListResponse(
-        documents=[DocumentResponse.model_validate(d) for d in docs],
+        documents=[_doc_to_response(d) for d in unique_docs],
         total=total,
     )
 
@@ -180,9 +197,41 @@ async def list_documents(
 @router.get("/{doc_id}", response_model=DocumentResponse)
 async def get_document(doc_id: int, db: Session = Depends(get_db)):
     """Get document details + extracted data."""
+    doc = (
+        db.query(Document)
+        .options(selectinload(Document.transactions))
+        .filter(Document.id == doc_id)
+        .first()
+    )
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    return _doc_to_response(doc)
+
+
+@router.patch("/{doc_id}", response_model=DocumentResponse)
+async def update_document(
+    doc_id: int,
+    doc_type: DocumentType = Query(...),
+    reprocess: bool = Query(False),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+):
+    """Update document type. Optionally reprocess with new type."""
     doc = db.query(Document).get(doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
+
+    doc.doc_type = doc_type.value
+    db.commit()
+
+    if reprocess:
+        doc.status = DocumentStatus.PENDING.value
+        doc.error_message = None
+        db.commit()
+        from ..config import settings
+        background_tasks.add_task(_process_document, doc.id, settings.database_url)
+
+    db.refresh(doc)
     return DocumentResponse.model_validate(doc)
 
 

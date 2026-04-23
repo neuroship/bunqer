@@ -372,6 +372,7 @@ export const documents = {
     }
     return response.json()
   },
+  updateType: (id, docType, reprocess = false) => request(`/documents/${id}?doc_type=${encodeURIComponent(docType)}&reprocess=${reprocess}`, { method: 'PATCH' }),
   getViewUrl: (id) => request(`/documents/${id}/view-url`),
   reprocess: (id) => request(`/documents/${id}/reprocess`, { method: 'POST' }),
   delete: (id) => request(`/documents/${id}`, { method: 'DELETE' }),

@@ -44,10 +44,21 @@
     failed: 'badge-error'
   }
 
-  onMount(async () => {
-    await loadDocuments()
+  let debounceTimer = null
+
+  // Single reactive effect for all filters
+  $effect(() => {
+    // Track all filter values
+    filterType; filterStatus; filterSearch; filterVendor; filterDateFrom; filterDateTo;
+    // Debounce to batch rapid changes
+    clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(() => loadDocuments(), 200)
+  })
+
+  onMount(() => {
     return () => {
       if (pollInterval) clearInterval(pollInterval)
+      clearTimeout(debounceTimer)
     }
   })
 
@@ -177,13 +188,25 @@
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
+  async function changeDocType(doc, newType) {
+    if (newType === doc.doc_type) return
+    try {
+      const shouldReprocess = doc.status === 'completed' || doc.status === 'failed'
+      await api.documents.updateType(doc.id, newType, shouldReprocess)
+      await loadDocuments()
+      if (shouldReprocess) {
+        window.showToast?.('Type changed, reprocessing started', 'info')
+      } else {
+        window.showToast?.('Type changed', 'success')
+      }
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
   function parseExtracted(doc) {
     if (!doc?.extracted_data) return null
     try { return JSON.parse(doc.extracted_data) } catch { return null }
-  }
-
-  function applyFilters() {
-    loadDocuments()
   }
 
   function clearFilters() {
@@ -193,7 +216,6 @@
     filterVendor = ''
     filterDateFrom = ''
     filterDateTo = ''
-    loadDocuments()
   }
 </script>
 
@@ -216,7 +238,6 @@
           bind:value={filterSearch}
           placeholder="Filename, vendor, ref..."
           class="input input-sm bg-va-canvas border-va-border text-va-text text-xs w-44"
-          onkeydown={(e) => e.key === 'Enter' && applyFilters()}
         />
       </div>
       <div class="flex flex-col gap-1">
@@ -245,7 +266,6 @@
           bind:value={filterVendor}
           placeholder="Vendor name..."
           class="input input-sm bg-va-canvas border-va-border text-va-text text-xs w-36"
-          onkeydown={(e) => e.key === 'Enter' && applyFilters()}
         />
       </div>
       <div class="flex flex-col gap-1">
@@ -256,10 +276,7 @@
         <label class="text-xs text-va-muted">To</label>
         <input type="date" bind:value={filterDateTo} class="input input-sm bg-va-canvas border-va-border text-va-text text-xs" />
       </div>
-      <Button onclick={applyFilters} variant="secondary" class="btn-sm">
-        <span class="icon-[tabler--search] w-3.5 h-3.5"></span>
-      </Button>
-      <button onclick={clearFilters} class="text-xs text-va-muted hover:text-va-text transition-colors">Clear</button>
+      <button onclick={clearFilters} class="text-xs text-va-muted hover:text-va-text transition-colors mt-auto pb-1.5">Clear</button>
     </div>
   </Card>
 
@@ -292,7 +309,16 @@
                 <div class="min-w-0">
                   <div class="text-sm text-va-text font-medium truncate">{doc.filename}</div>
                   <div class="flex flex-wrap items-center gap-2 mt-1">
-                    <span class="badge badge-xs badge-soft badge-primary">{docTypeLabels[doc.doc_type] || doc.doc_type}</span>
+                    <select
+                      value={doc.doc_type}
+                      onchange={(e) => changeDocType(doc, e.target.value)}
+                      class="select select-xs bg-transparent border-va-border/50 text-va-accent text-xs py-0 h-5 min-h-0 pr-5 leading-none"
+                      onclick={(e) => e.stopPropagation()}
+                    >
+                      <option value="sales_invoice">Sales Invoice</option>
+                      <option value="purchase_invoice">Purchase Invoice</option>
+                      <option value="tax_letter">Tax Letter</option>
+                    </select>
                     <span class="badge badge-xs badge-soft {statusColors[doc.status]}">{doc.status}</span>
                     <span class="text-xs text-va-muted">{formatFileSize(doc.file_size)}</span>
                     <span class="text-xs text-va-muted">{formatDate(doc.created_at)}</span>
@@ -315,6 +341,18 @@
                         <span>{doc.tax_subject}</span>
                       {/if}
                     </div>
+                    {#if doc.matched_transactions?.length}
+                      <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                        {#each doc.matched_transactions as txn}
+                          <span class="text-xs px-2 py-0.5 rounded-md bg-va-success/10 border border-va-success/30 text-va-success inline-flex items-center gap-1">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            {formatAmount(txn.amount)} · {txn.counterparty_name || 'Unknown'} · {formatDate(txn.transaction_date)}
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
                   {/if}
                   {#if doc.status === 'failed' && doc.error_message}
                     <div class="text-xs text-red-400 mt-1 truncate">{doc.error_message}</div>
@@ -399,8 +437,16 @@
     {@const extracted = parseExtracted(selectedDoc)}
     <div class="space-y-4">
       <!-- Meta info -->
-      <div class="flex flex-wrap gap-2 text-xs">
-        <span class="badge badge-sm badge-soft badge-primary">{docTypeLabels[selectedDoc.doc_type]}</span>
+      <div class="flex flex-wrap gap-2 items-center text-xs">
+        <select
+          value={selectedDoc.doc_type}
+          onchange={(e) => { changeDocType(selectedDoc, e.target.value); selectedDoc = { ...selectedDoc, doc_type: e.target.value } }}
+          class="select select-xs bg-transparent border-va-border/50 text-va-accent text-xs py-0 h-5 min-h-0 pr-5 leading-none"
+        >
+          <option value="sales_invoice">Sales Invoice</option>
+          <option value="purchase_invoice">Purchase Invoice</option>
+          <option value="tax_letter">Tax Letter</option>
+        </select>
         <span class="badge badge-sm badge-soft {statusColors[selectedDoc.status]}">{selectedDoc.status}</span>
         <span class="text-va-muted">{formatFileSize(selectedDoc.file_size)}</span>
         <span class="text-va-muted">Uploaded: {formatDate(selectedDoc.created_at)}</span>
@@ -487,6 +533,27 @@
               </div>
             {/if}
           {/if}
+        </div>
+      {/if}
+
+      <!-- Matched Transactions -->
+      {#if selectedDoc.matched_transactions?.length}
+        <div>
+          <h4 class="text-sm font-medium text-va-text mb-2">Matched Transactions</h4>
+          <div class="space-y-2">
+            {#each selectedDoc.matched_transactions as txn}
+              <div class="flex items-center justify-between p-2.5 bg-va-canvas rounded-lg border border-va-success/30">
+                <div class="flex items-center gap-3">
+                  <span class="text-sm font-medium {txn.amount >= 0 ? 'text-va-success' : 'text-va-danger'}">{formatAmount(txn.amount)}</span>
+                  <span class="text-xs text-va-muted">{txn.counterparty_name || 'Unknown'}</span>
+                  <span class="text-xs text-va-muted">{formatDate(txn.transaction_date)}</span>
+                </div>
+                {#if txn.description}
+                  <span class="text-xs text-va-muted max-w-[200px] truncate" title={txn.description}>{txn.description}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
         </div>
       {/if}
 

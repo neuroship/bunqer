@@ -6,7 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
@@ -62,8 +62,24 @@ class Document(Base):
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # Relationships
+    transactions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="document")
+
 
 # --- Pydantic schemas ---
+
+
+class MatchedTransactionInfo(BaseModel):
+    """Minimal transaction info for document response."""
+
+    id: int
+    amount: Decimal
+    description: str | None = None
+    counterparty_name: str | None = None
+    transaction_date: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class DocumentResponse(BaseModel):
@@ -86,6 +102,7 @@ class DocumentResponse(BaseModel):
     tax_subject: str | None = None
     payment_reference: str | None = None
     error_message: str | None = None
+    matched_transactions: list[MatchedTransactionInfo] = []
     created_at: datetime
     updated_at: datetime
 
@@ -98,3 +115,7 @@ class DocumentListResponse(BaseModel):
 
     documents: list[DocumentResponse]
     total: int
+
+
+# Import to avoid circular imports
+from .transaction import Transaction  # noqa: E402, F401

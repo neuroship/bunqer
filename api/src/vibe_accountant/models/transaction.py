@@ -62,6 +62,11 @@ class Transaction(Base):
     )
     tag: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Matched document
+    document_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+
     transaction_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -70,6 +75,7 @@ class Transaction(Base):
     # Relationships
     account: Mapped["Account"] = relationship("Account", back_populates="transactions")
     category: Mapped["Category | None"] = relationship("Category", back_populates="transactions")
+    document: Mapped["Document | None"] = relationship("Document", back_populates="transactions")
 
 
 # Pydantic schemas
@@ -125,6 +131,8 @@ class TransactionResponse(BaseModel):
     request_reference_split_the_bill: str | None
     category_id: int | None
     tag: str | None
+    document_id: int | None = None
+    document_filename: str | None = None
     transaction_date: datetime
     created_at: datetime
 
@@ -288,3 +296,4 @@ class BunqTransaction(BaseModel):
 # Import to avoid circular imports
 from .account import Account  # noqa: E402, F401
 from .category import Category  # noqa: E402, F401
+from .document import Document  # noqa: E402, F401
