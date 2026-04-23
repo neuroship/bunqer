@@ -264,7 +264,8 @@ export const transactions = {
     return request(`/transactions/stats${query ? `?${query}` : ''}`)
   },
   applyRules: () => request('/transactions/apply-rules', { method: 'POST' }),
-  matchDocuments: () => request('/transactions/match-documents', { method: 'POST' })
+  matchDocuments: () => request('/transactions/match-documents', { method: 'POST' }),
+  matchSuggestions: () => request('/transactions/match-suggestions')
 }
 
 // Categories

@@ -88,6 +88,12 @@
   // Match documents state
   let matchingDocs = $state(false)
 
+  // Match suggestions state
+  let showSuggestionsModal = $state(false)
+  let matchSuggestions = $state([])
+  let loadingSuggestions = $state(false)
+  let approvingSuggestion = $state(null)
+
   // Sync state
   let syncing = $state(false)
 
@@ -499,6 +505,41 @@
     }
   }
 
+  async function fetchMatchSuggestions() {
+    loadingSuggestions = true
+    try {
+      const result = await api.transactions.matchSuggestions()
+      matchSuggestions = result.suggestions || []
+      if (matchSuggestions.length === 0) {
+        window.showToast?.('No match suggestions found', 'info')
+      } else {
+        showSuggestionsModal = true
+      }
+    } catch (error) {
+      console.error('Failed to fetch match suggestions:', error)
+      window.showToast?.(error.message, 'error')
+    } finally {
+      loadingSuggestions = false
+    }
+  }
+
+  async function approveSuggestion(suggestion) {
+    approvingSuggestion = suggestion.transaction_id
+    try {
+      await api.transactions.update(suggestion.transaction_id, { document_id: suggestion.document_id })
+      matchSuggestions = matchSuggestions.filter(s => s.transaction_id !== suggestion.transaction_id && s.document_id !== suggestion.document_id)
+      await loadTransactions()
+      window.showToast?.('Document matched', 'success')
+      if (matchSuggestions.length === 0) {
+        showSuggestionsModal = false
+      }
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      approvingSuggestion = null
+    }
+  }
+
   async function syncTransactions() {
     syncing = true
     try {
@@ -719,6 +760,21 @@
           </svg>
         {/if}
         Match Docs
+      </button>
+      <button
+        onclick={fetchMatchSuggestions}
+        disabled={loadingSuggestions}
+        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        title="Find similar name matches for review"
+      >
+        {#if loadingSuggestions}
+          <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        {/if}
+        Suggest Matches
       </button>
       <button
         onclick={() => showFilters = !showFilters}
@@ -1143,6 +1199,67 @@
     {/if}
   </Card>
 </div>
+
+<!-- Match Suggestions Modal -->
+<Modal bind:show={showSuggestionsModal} title="Suggested Document Matches" size="3xl">
+  <p class="text-xs text-va-muted mb-4">Documents with matching amounts and similar counterparty names. Review and approve.</p>
+  {#if matchSuggestions.length === 0}
+    <p class="text-sm text-va-muted text-center py-6">No suggestions remaining</p>
+  {:else}
+    <div class="space-y-3 max-h-[60vh] overflow-y-auto">
+      {#each matchSuggestions as suggestion}
+        <div class="border border-va-border rounded-lg p-3 bg-va-canvas">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1 min-w-0 grid grid-cols-2 gap-3">
+              <!-- Document side -->
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-va-muted mb-1 font-medium">Document</div>
+                <div class="text-xs text-va-text font-medium truncate" title={suggestion.document_filename}>
+                  {suggestion.document_filename}
+                </div>
+                <div class="text-xs text-va-muted mt-0.5">{suggestion.document_vendor}</div>
+                <div class="text-xs text-va-muted">€{suggestion.document_amount}</div>
+              </div>
+              <!-- Transaction side -->
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-va-muted mb-1 font-medium">Transaction</div>
+                <div class="text-xs text-va-text font-medium truncate" title={suggestion.transaction_description}>
+                  {suggestion.transaction_counterparty || suggestion.transaction_description}
+                </div>
+                <div class="text-xs text-va-muted mt-0.5">{suggestion.transaction_date || '—'}</div>
+                <div class="text-xs text-va-muted">€{suggestion.transaction_amount}</div>
+              </div>
+            </div>
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-va-accent/10 text-va-accent font-medium">
+                {Math.round(suggestion.similarity * 100)}% similar
+              </span>
+              <div class="flex gap-1.5">
+                <button
+                  onclick={() => approveSuggestion(suggestion)}
+                  disabled={approvingSuggestion === suggestion.transaction_id}
+                  class="text-xs px-2.5 py-1 rounded border-2 border-green-600/50 text-green-400 hover:bg-green-600/15 hover:border-green-500 transition-all disabled:opacity-50"
+                >
+                  {#if approvingSuggestion === suggestion.transaction_id}
+                    <div class="w-3 h-3 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
+                  {:else}
+                    Match
+                  {/if}
+                </button>
+                <button
+                  onclick={() => matchSuggestions = matchSuggestions.filter(s => s !== suggestion)}
+                  class="text-xs px-2.5 py-1 rounded border-2 border-va-border text-va-muted hover:border-va-muted hover:text-va-text transition-all"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</Modal>
 
 <!-- Raw JSON Modal -->
 <Modal bind:show={showRawModal} title="Raw bunq JSON" onClose={closeRawModal}>

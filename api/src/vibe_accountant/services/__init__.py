@@ -7,7 +7,7 @@ from .rule_engine import (
     apply_rules_to_uncategorized,
     apply_rules_to_transactions,
 )
-from .document_matcher import match_documents_to_transactions
+from .document_matcher import find_match_suggestions, match_documents_to_transactions
 
 __all__ = [
     "evaluate_condition",
@@ -15,5 +15,6 @@ __all__ = [
     "apply_rules_to_transaction",
     "apply_rules_to_uncategorized",
     "apply_rules_to_transactions",
+    "find_match_suggestions",
     "match_documents_to_transactions",
 ]

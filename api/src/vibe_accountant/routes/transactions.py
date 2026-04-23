@@ -334,6 +334,15 @@ async def match_documents(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/match-suggestions")
+async def get_match_suggestions(db: Session = Depends(get_db)):
+    """Get suggested document-transaction matches based on amount + name similarity."""
+    from ..services import find_match_suggestions
+
+    suggestions = find_match_suggestions(db)
+    return {"suggestions": suggestions}
+
+
 @router.get("/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(transaction_id: int, db: Session = Depends(get_db)):
     """Get a specific transaction by ID."""
