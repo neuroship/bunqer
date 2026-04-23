@@ -952,7 +952,7 @@
                   </td>
                 {/if}
                 {#if isColumnVisible('description')}
-                  <td class="py-3 px-3 text-sm text-va-muted max-w-xs truncate" title={transaction.description}>
+                  <td class="py-3 px-3 text-sm text-va-muted max-w-xs break-words whitespace-normal">
                     {transaction.description || '-'}
                   </td>
                 {/if}

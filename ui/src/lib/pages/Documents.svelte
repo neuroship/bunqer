@@ -28,6 +28,12 @@
   let selectedDoc = $state(null)
   let detailLoading = $state(false)
 
+  // Duplicates
+  let showDuplicatesModal = $state(false)
+  let duplicateGroups = $state([])
+  let duplicatesLoading = $state(false)
+  let deletingDuplicates = $state(new Set())
+
   // Polling for processing docs
   let pollInterval = null
 
@@ -217,15 +223,64 @@
     filterDateFrom = ''
     filterDateTo = ''
   }
+
+  async function findDuplicates() {
+    duplicatesLoading = true
+    showDuplicatesModal = true
+    try {
+      const res = await api.documents.findDuplicates()
+      duplicateGroups = res.groups
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+      showDuplicatesModal = false
+    } finally {
+      duplicatesLoading = false
+    }
+  }
+
+  async function deleteDuplicate(docId, keepId) {
+    deletingDuplicates = new Set([...deletingDuplicates, docId])
+    try {
+      const res = await api.documents.deleteDuplicate(docId, keepId)
+      window.showToast?.(`Duplicate deleted, ${res.transactions_reassigned} transaction(s) reassigned`, 'success')
+      // Remove deleted doc from groups
+      duplicateGroups = duplicateGroups
+        .map(g => ({
+          ...g,
+          documents: g.documents.filter(d => d.id !== docId)
+        }))
+        .filter(g => g.documents.length > 1)
+      await loadDocuments()
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      deletingDuplicates = new Set([...deletingDuplicates].filter(id => id !== docId))
+    }
+  }
+
+  async function backfillHashes() {
+    try {
+      const res = await api.documents.backfillHashes()
+      window.showToast?.(`Hashed ${res.updated} documents${res.errors ? `, ${res.errors} errors` : ''}`, res.errors ? 'warning' : 'success')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
 </script>
 
 <div>
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Documents</h1>
-    <Button onclick={() => showUploadModal = true}>
-      <span class="icon-[tabler--upload] w-4 h-4 mr-1"></span>
-      Upload Document
-    </Button>
+    <div class="flex gap-2">
+      <Button variant="secondary" onclick={findDuplicates}>
+        <span class="icon-[tabler--copy] w-4 h-4 mr-1"></span>
+        Find Duplicates
+      </Button>
+      <Button onclick={() => showUploadModal = true}>
+        <span class="icon-[tabler--upload] w-4 h-4 mr-1"></span>
+        Upload Document
+      </Button>
+    </div>
   </div>
 
   <!-- Filters -->
@@ -585,6 +640,85 @@
           Delete
         </Button>
       </div>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Duplicates Modal -->
+<Modal bind:show={showDuplicatesModal} title="Duplicate Documents" size="3xl" onClose={() => duplicateGroups = []}>
+  {#if duplicatesLoading}
+    <div class="flex items-center justify-center h-24">
+      <div class="w-6 h-6 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  {:else if duplicateGroups.length === 0}
+    <div class="text-center py-8">
+      <span class="icon-[tabler--check] w-8 h-8 text-va-success mb-3 inline-block"></span>
+      <p class="text-va-muted text-sm">No duplicates found</p>
+    </div>
+    <div class="flex gap-2 pt-3 border-t border-va-border">
+      <Button variant="secondary" onclick={backfillHashes}>
+        <span class="icon-[tabler--hash] w-4 h-4 mr-1"></span>
+        Backfill Hashes
+      </Button>
+      <p class="text-xs text-va-muted self-center">Run this first if documents were uploaded before hash tracking was added</p>
+    </div>
+  {:else}
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-va-muted">{duplicateGroups.length} duplicate group{duplicateGroups.length > 1 ? 's' : ''} found</p>
+        <Button variant="secondary" onclick={backfillHashes}>
+          <span class="icon-[tabler--hash] w-4 h-4 mr-1"></span>
+          Backfill Hashes
+        </Button>
+      </div>
+      {#each duplicateGroups as group, gi}
+        <div class="p-3 bg-va-hover/50 rounded-lg border border-va-border/30">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="badge badge-xs badge-soft {group.reason === 'exact_hash' ? 'badge-error' : 'badge-warning'}">
+              {group.reason === 'exact_hash' ? 'Exact match' : 'Similar content'}
+            </span>
+            <span class="text-xs text-va-muted">{group.documents.length} documents</span>
+          </div>
+          <div class="space-y-2">
+            {#each group.documents as doc, di}
+              <div class="flex items-center justify-between gap-2 p-2 bg-va-canvas rounded-lg border border-va-border/50">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm text-va-text truncate">{doc.filename}</div>
+                  <div class="flex items-center gap-2 mt-0.5 text-xs text-va-muted">
+                    {#if doc.vendor_name}<span>{doc.vendor_name}</span>{/if}
+                    {#if doc.total_amount != null}<span>{formatAmount(doc.total_amount)}</span>{/if}
+                    <span>{formatDate(doc.created_at)}</span>
+                    {#if doc.matched_transactions?.length}
+                      <span class="text-va-success">{doc.matched_transactions.length} txn linked</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  {#if di === 0}
+                    <span class="text-xs px-2 py-0.5 rounded bg-va-success/10 border border-va-success/30 text-va-success">keep</span>
+                  {:else}
+                    <button
+                      onclick={() => deleteDuplicate(doc.id, group.documents[0].id)}
+                      disabled={deletingDuplicates.has(doc.id)}
+                      class="px-2 py-1 text-xs rounded border border-va-danger/30 text-va-danger hover:bg-va-danger/10 transition-all disabled:opacity-50"
+                    >
+                      {#if deletingDuplicates.has(doc.id)}
+                        <span class="w-3 h-3 border border-va-danger border-t-transparent rounded-full animate-spin inline-block"></span>
+                      {:else}
+                        <span class="icon-[tabler--trash] w-3 h-3 inline-block mr-0.5"></span>
+                        Remove
+                      {/if}
+                    </button>
+                  {/if}
+                  <button onclick={() => viewRaw(doc)} class="p-1 text-va-muted hover:text-va-accent rounded transition-all" title="View file">
+                    <span class="icon-[tabler--external-link] w-3.5 h-3.5"></span>
+                  </button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
     </div>
   {/if}
 </Modal>

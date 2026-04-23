@@ -377,6 +377,9 @@ export const documents = {
   getViewUrl: (id) => request(`/documents/${id}/view-url`),
   reprocess: (id) => request(`/documents/${id}/reprocess`, { method: 'POST' }),
   delete: (id) => request(`/documents/${id}`, { method: 'DELETE' }),
+  findDuplicates: () => request('/documents/duplicates/find'),
+  deleteDuplicate: (docId, keepId) => request(`/documents/duplicates/${docId}?keep_id=${keepId}`, { method: 'DELETE' }),
+  backfillHashes: () => request('/documents/duplicates/backfill-hashes', { method: 'POST' }),
 }
 
 // Company Settings

@@ -36,6 +36,7 @@ class Document(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     s3_key: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     doc_type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -88,6 +89,7 @@ class DocumentResponse(BaseModel):
     id: int
     filename: str
     s3_key: str
+    content_hash: str | None = None
     content_type: str
     file_size: int
     doc_type: str

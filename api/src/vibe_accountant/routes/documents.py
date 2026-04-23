@@ -1,9 +1,12 @@
 """Document upload, OCR, and management endpoints."""
 
+import hashlib
 import json
 import traceback
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
+from difflib import SequenceMatcher
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import or_
@@ -11,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
 from ..logger import logger
-from ..models import Document, DocumentListResponse, DocumentResponse, DocumentStatus, DocumentType, MatchedTransactionInfo
+from ..models import Document, DocumentListResponse, DocumentResponse, DocumentStatus, DocumentType, MatchedTransactionInfo, Transaction
 from ..services import s3
 from ..services.document_processor import (
     denormalize_fields,
@@ -105,6 +108,17 @@ async def upload_document(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(400, "File too large. Max 20MB.")
 
+    # Compute content hash
+    content_hash = hashlib.sha256(contents).hexdigest()
+
+    # Check for exact duplicate
+    existing = db.query(Document).filter(Document.content_hash == content_hash).first()
+    if existing:
+        raise HTTPException(
+            409,
+            f"Duplicate document: '{existing.filename}' (id={existing.id}) has identical content.",
+        )
+
     # Upload to S3
     s3_key = s3.upload_document(contents, file.filename, file.content_type)
 
@@ -112,6 +126,7 @@ async def upload_document(
     doc = Document(
         filename=file.filename,
         s3_key=s3_key,
+        content_hash=content_hash,
         content_type=file.content_type,
         file_size=len(contents),
         doc_type=doc_type.value,
@@ -192,6 +207,119 @@ async def list_documents(
         documents=[_doc_to_response(d) for d in unique_docs],
         total=total,
     )
+
+
+OCR_SIMILARITY_THRESHOLD = 0.85
+
+
+@router.get("/duplicates/find")
+async def find_duplicates(db: Session = Depends(get_db)):
+    """Find duplicate document groups by content hash OR OCR text similarity."""
+    completed_docs = (
+        db.query(Document)
+        .options(selectinload(Document.transactions))
+        .filter(Document.status == DocumentStatus.COMPLETED.value)
+        .all()
+    )
+
+    groups: list[dict] = []
+    seen_ids: set[int] = set()
+
+    # Pass 1: exact hash matches
+    hash_groups: dict[str, list[Document]] = defaultdict(list)
+    for doc in completed_docs:
+        if doc.content_hash:
+            hash_groups[doc.content_hash].append(doc)
+
+    for hash_val, docs in hash_groups.items():
+        if len(docs) > 1:
+            for d in docs:
+                seen_ids.add(d.id)
+            groups.append({
+                "reason": "exact_hash",
+                "documents": [_doc_to_response(d) for d in docs],
+            })
+
+    # Pass 2: OCR text similarity for docs not already grouped
+    ungrouped = [d for d in completed_docs if d.id not in seen_ids and d.ocr_text]
+    for i, doc_a in enumerate(ungrouped):
+        if doc_a.id in seen_ids:
+            continue
+        similar = [doc_a]
+        for doc_b in ungrouped[i + 1:]:
+            if doc_b.id in seen_ids:
+                continue
+            ratio = SequenceMatcher(None, doc_a.ocr_text, doc_b.ocr_text).ratio()
+            if ratio >= OCR_SIMILARITY_THRESHOLD:
+                similar.append(doc_b)
+                seen_ids.add(doc_b.id)
+        if len(similar) > 1:
+            seen_ids.add(doc_a.id)
+            groups.append({
+                "reason": "ocr_similarity",
+                "documents": [_doc_to_response(d) for d in similar],
+            })
+
+    return {"groups": groups, "total_groups": len(groups)}
+
+
+@router.delete("/duplicates/{doc_id}")
+async def delete_duplicate(
+    doc_id: int,
+    keep_id: int = Query(..., description="Document ID to reassign transactions to"),
+    db: Session = Depends(get_db),
+):
+    """Delete a duplicate document, reassigning its transactions to the kept document."""
+    doc = db.query(Document).get(doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    keep_doc = db.query(Document).get(keep_id)
+    if not keep_doc:
+        raise HTTPException(404, "Target document to keep not found")
+
+    if doc_id == keep_id:
+        raise HTTPException(400, "Cannot delete and keep the same document")
+
+    # Reassign transactions
+    reassigned = (
+        db.query(Transaction)
+        .filter(Transaction.document_id == doc_id)
+        .update({Transaction.document_id: keep_id})
+    )
+
+    # Delete S3 object
+    try:
+        s3.delete_document(doc.s3_key)
+    except Exception as e:
+        logger.warning(f"Failed to delete S3 object {doc.s3_key}: {e}")
+
+    db.delete(doc)
+    db.commit()
+    return {"detail": "Duplicate deleted", "transactions_reassigned": reassigned}
+
+
+@router.post("/duplicates/backfill-hashes")
+async def backfill_hashes(db: Session = Depends(get_db)):
+    """Compute content_hash for existing documents that don't have one."""
+    docs = db.query(Document).filter(Document.content_hash.is_(None)).all()
+    updated = 0
+    errors = 0
+    for doc in docs:
+        try:
+            client = s3._get_client()
+            response = client.get_object(
+                Bucket=s3.settings.aws_s3_bucket_name,
+                Key=doc.s3_key,
+            )
+            file_bytes = response["Body"].read()
+            doc.content_hash = hashlib.sha256(file_bytes).hexdigest()
+            updated += 1
+        except Exception as e:
+            logger.warning(f"Failed to hash document {doc.id} ({doc.s3_key}): {e}")
+            errors += 1
+    db.commit()
+    return {"updated": updated, "errors": errors, "total": len(docs)}
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
