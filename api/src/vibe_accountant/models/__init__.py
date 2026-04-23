@@ -34,6 +34,13 @@ from .invoice import (
 )
 from .company_settings import CompanySettings, CompanySettingsUpdate, CompanySettingsResponse
 from .webauthn_credential import WebAuthnCredential, WebAuthnCredentialResponse
+from .document import (
+    Document,
+    DocumentType,
+    DocumentStatus,
+    DocumentResponse,
+    DocumentListResponse,
+)
 
 __all__ = [
     "Base",
@@ -77,4 +84,9 @@ __all__ = [
     "CompanySettingsResponse",
     "WebAuthnCredential",
     "WebAuthnCredentialResponse",
+    "Document",
+    "DocumentType",
+    "DocumentStatus",
+    "DocumentResponse",
+    "DocumentListResponse",
 ]

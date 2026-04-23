@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from .auth import get_current_user
 from .config import settings
 from .logger import logger
-from .routes import auth, categories, events, health, integrations, invoices, passkeys, settings as settings_routes, setup, transactions
+from .routes import auth, categories, documents, events, health, integrations, invoices, passkeys, settings as settings_routes, setup, transactions
 
 
 def run_migrations():
@@ -77,6 +77,7 @@ app.include_router(transactions.router, dependencies=auth_dependency)
 app.include_router(invoices.router, dependencies=auth_dependency)
 app.include_router(categories.router, dependencies=auth_dependency)
 app.include_router(settings_routes.router, dependencies=auth_dependency)
+app.include_router(documents.router, dependencies=auth_dependency)
 
 
 @app.on_event("startup")

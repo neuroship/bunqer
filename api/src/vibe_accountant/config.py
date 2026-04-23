@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "Vibe Accountant"
     webauthn_origin: str = "http://localhost:5173"  # Expected origin for verification
 
+    # AWS S3
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_s3_bucket_name: str | None = None
+    aws_s3_endpoint_url: str | None = None
+    aws_default_region: str = "eu-west-1"
+
+    # Mistral AI
+    mistral_api_key: str | None = None
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -341,6 +341,42 @@ export const invoices = {
   }
 }
 
+// Documents
+export const documents = {
+  list: (params = {}) => {
+    const filteredParams = Object.fromEntries(
+      Object.entries(params).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+    )
+    const query = new URLSearchParams(filteredParams).toString()
+    return request(`/documents${query ? `?${query}` : ''}`)
+  },
+  get: (id) => request(`/documents/${id}`),
+  upload: async (file, docType) => {
+    const url = `${API_BASE}/documents?doc_type=${encodeURIComponent(docType)}`
+    const token = getToken()
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      body: formData
+    })
+    if (response.status === 401) {
+      clearAuth()
+      if (onUnauthorizedCallback) onUnauthorizedCallback()
+      throw new Error('Session expired. Please log in again.')
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }))
+      throw new Error(error.detail || 'Upload failed')
+    }
+    return response.json()
+  },
+  getViewUrl: (id) => request(`/documents/${id}/view-url`),
+  reprocess: (id) => request(`/documents/${id}/reprocess`, { method: 'POST' }),
+  delete: (id) => request(`/documents/${id}`, { method: 'DELETE' }),
+}
+
 // Company Settings
 export const companySettings = {
   get: () => request('/settings/company'),
@@ -438,6 +474,7 @@ export default {
   categories,
   clients,
   invoices,
+  documents,
   companySettings,
   passkeys,
   subscribeToEvents,

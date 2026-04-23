@@ -1,5 +1,5 @@
 """API routes."""
 
-from . import events, health, integrations, invoices, passkeys, settings, setup, transactions
+from . import documents, events, health, integrations, invoices, passkeys, settings, setup, transactions
 
-__all__ = ["events", "health", "integrations", "passkeys", "setup", "transactions", "invoices", "settings"]
+__all__ = ["documents", "events", "health", "integrations", "passkeys", "setup", "transactions", "invoices", "settings"]

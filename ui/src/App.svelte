@@ -8,6 +8,7 @@
   import Clients from './lib/pages/Clients.svelte'
   import Categories from './lib/pages/Categories.svelte'
   import Settings from './lib/pages/Settings.svelte'
+  import Documents from './lib/pages/Documents.svelte'
   import Login from './lib/pages/Login.svelte'
   import Toast from './lib/components/Toast.svelte'
   import { subscribeToEvents, isAuthenticated, clearAuth, setOnUnauthorized, getUsername } from './lib/api.js'
@@ -151,6 +152,8 @@
         <Clients />
       {:else if currentPage === 'categories'}
         <Categories />
+      {:else if currentPage === 'documents'}
+        <Documents />
       {:else if currentPage === 'settings'}
         <Settings />
       {/if}
