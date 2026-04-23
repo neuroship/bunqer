@@ -32,7 +32,8 @@
     start_date: '',
     end_date: '',
     min_amount: '',
-    max_amount: ''
+    max_amount: '',
+    has_document: ''
   }
   let filters = $state(loadFilters())
 
@@ -60,7 +61,7 @@
   // Collapsed filter sections - auto-open if filters are active from localStorage
   let showFilters = $state(
     filters.account_id || filters.category_id || filters.direction || filters.start_date || filters.end_date ||
-    filters.min_amount || filters.max_amount
+    filters.min_amount || filters.max_amount || filters.has_document
   )
 
   // Sorting state
@@ -626,7 +627,7 @@
   // Check if any filters are active
   let hasActiveFilters = $derived(
     filters.account_id || filters.category_id || filters.direction || filters.start_date || filters.end_date ||
-    filters.min_amount || filters.max_amount
+    filters.min_amount || filters.max_amount || filters.has_document
   )
 
   $effect(() => {
@@ -771,6 +772,16 @@
               <option value="">All</option>
               <option value="in">Income</option>
               <option value="out">Expense</option>
+            </select>
+          </div>
+
+          <!-- Document Match -->
+          <div>
+            <label class="block text-xs text-va-muted mb-1">Document</label>
+            <select bind:value={filters.has_document} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+              <option value="">All</option>
+              <option value="yes">Has document</option>
+              <option value="no">No document</option>
             </select>
           </div>
 

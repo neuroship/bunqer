@@ -148,6 +148,7 @@ async def list_transactions(
     type: str | None = Query(None, description="Filter by payment type (e.g., IDEAL, BUNQ)"),
     sub_type: str | None = Query(None, description="Filter by sub type (e.g., REQUEST, PAYMENT)"),
     direction: str | None = Query(None, description="Filter by direction: 'in' or 'out'"),
+    has_document: str | None = Query(None, description="Filter by document match: 'yes' or 'no'"),
     sort_by: str | None = Query(None, description="Sort by field: 'amount', 'date'"),
     sort_order: str | None = Query(None, description="Sort order: 'asc' or 'desc'"),
     limit: int = Query(50, le=1000),
@@ -209,6 +210,12 @@ async def list_transactions(
             q = q.filter(Transaction.amount > 0)
         elif direction == 'out':
             q = q.filter(Transaction.amount < 0)
+
+    if has_document:
+        if has_document == 'yes':
+            q = q.filter(Transaction.document_id.isnot(None))
+        elif has_document == 'no':
+            q = q.filter(Transaction.document_id.is_(None))
 
     # Get total count before pagination
     total_count = q.count()
