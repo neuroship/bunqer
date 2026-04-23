@@ -91,7 +91,6 @@
   // Match suggestions state
   let showSuggestionsModal = $state(false)
   let matchSuggestions = $state([])
-  let loadingSuggestions = $state(false)
   let approvingSuggestion = $state(null)
 
   // Sync state
@@ -490,36 +489,26 @@
   async function matchDocuments() {
     matchingDocs = true
     try {
+      // Step 1: auto-match by reference and exact name
       const result = await api.transactions.matchDocuments()
       if (result.matched > 0) {
-        window.showToast?.(result.message, 'success')
+        window.showToast?.(`Auto-matched ${result.matched} document(s)`, 'success')
         await loadTransactions()
-      } else {
-        window.showToast?.(result.message, 'info')
+      }
+
+      // Step 2: fetch fuzzy suggestions for remaining unmatched
+      const sugResult = await api.transactions.matchSuggestions()
+      matchSuggestions = sugResult.suggestions || []
+      if (matchSuggestions.length > 0) {
+        showSuggestionsModal = true
+      } else if (result.matched === 0) {
+        window.showToast?.('No matches or suggestions found', 'info')
       }
     } catch (error) {
       console.error('Failed to match documents:', error)
       window.showToast?.(error.message, 'error')
     } finally {
       matchingDocs = false
-    }
-  }
-
-  async function fetchMatchSuggestions() {
-    loadingSuggestions = true
-    try {
-      const result = await api.transactions.matchSuggestions()
-      matchSuggestions = result.suggestions || []
-      if (matchSuggestions.length === 0) {
-        window.showToast?.('No match suggestions found', 'info')
-      } else {
-        showSuggestionsModal = true
-      }
-    } catch (error) {
-      console.error('Failed to fetch match suggestions:', error)
-      window.showToast?.(error.message, 'error')
-    } finally {
-      loadingSuggestions = false
     }
   }
 
@@ -760,21 +749,6 @@
           </svg>
         {/if}
         Match Docs
-      </button>
-      <button
-        onclick={fetchMatchSuggestions}
-        disabled={loadingSuggestions}
-        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        title="Find similar name matches for review"
-      >
-        {#if loadingSuggestions}
-          <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
-        {:else}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        {/if}
-        Suggest Matches
       </button>
       <button
         onclick={() => showFilters = !showFilters}
