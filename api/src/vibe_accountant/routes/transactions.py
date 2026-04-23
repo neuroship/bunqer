@@ -65,10 +65,11 @@ class TransactionSearchParams(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
-    """Schema for updating a transaction's category and tag."""
+    """Schema for updating a transaction's category, tag, and document."""
 
     category_id: int | None = None
     tag: str | None = None
+    document_id: int | None = None
 
 
 @router.get("/filters")
@@ -374,6 +375,14 @@ async def update_transaction(
     # Update tag if provided (can be set to null/empty)
     if "tag" in data.model_dump(exclude_unset=True):
         transaction.tag = data.tag if data.tag else None
+
+    # Update document_id if provided (can be set to null to disconnect)
+    if "document_id" in data.model_dump(exclude_unset=True):
+        if data.document_id is not None:
+            doc = db.query(Document).filter(Document.id == data.document_id).first()
+            if not doc:
+                raise HTTPException(status_code=400, detail="Document not found")
+        transaction.document_id = data.document_id
 
     db.commit()
     db.refresh(transaction)
