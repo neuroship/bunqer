@@ -3,7 +3,7 @@
 import json
 from decimal import Decimal
 
-from mistralai import Mistral
+from mistralai.client import Mistral
 
 from ..config import settings
 from ..logger import logger
