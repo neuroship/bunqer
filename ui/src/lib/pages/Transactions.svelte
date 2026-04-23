@@ -1205,9 +1205,15 @@
               </div>
             </div>
             <div class="flex flex-col items-end gap-1.5 shrink-0">
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-va-accent/10 text-va-accent font-medium">
-                {Math.round(suggestion.similarity * 100)}% similar
-              </span>
+              {#if suggestion.match_type === 'name_similar'}
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-va-accent/10 text-va-accent font-medium">
+                  {Math.round(suggestion.similarity * 100)}% name match
+                </span>
+              {:else}
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
+                  amount only
+                </span>
+              {/if}
               <div class="flex gap-1.5">
                 <button
                   onclick={() => approveSuggestion(suggestion)}

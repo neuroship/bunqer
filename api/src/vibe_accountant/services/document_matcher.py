@@ -124,24 +124,41 @@ def _is_substring_match(a: str, b: str) -> bool:
     return al in bl or bl in al
 
 
+def _make_suggestion(doc, txn, similarity: float, match_type: str) -> dict:
+    return {
+        "document_id": doc.id,
+        "document_filename": doc.filename,
+        "document_vendor": doc.vendor_name,
+        "document_amount": str(doc.total_amount),
+        "transaction_id": txn.id,
+        "transaction_counterparty": txn.counterparty_name,
+        "transaction_amount": str(txn.amount),
+        "transaction_date": (
+            txn.transaction_date.isoformat() if txn.transaction_date else None
+        ),
+        "transaction_description": txn.description,
+        "similarity": round(similarity, 2),
+        "match_type": match_type,
+    }
+
+
 def find_match_suggestions(
     db: Session, similarity_threshold: float = 0.4
 ) -> list[dict]:
-    """Find potential document-transaction matches based on amount + name similarity.
+    """Find potential document-transaction matches in two tiers.
 
-    Returns suggestions for pairs where:
-    - Amount matches (absolute value)
-    - Counterparty name is similar to vendor name (above threshold)
-    - But NOT a substring match (those are handled by auto-match)
+    Tier 1 (name_similar): amount matches + fuzzy name similarity above threshold,
+    excluding substring matches (handled by auto-match).
 
-    Each suggestion is a dict with document info, transaction info, and similarity score.
+    Tier 2 (amount_only): for documents with NO tier-1 suggestions,
+    fall back to amount-only matches.
+
+    Each suggestion includes a match_type field: "name_similar" or "amount_only".
     """
     docs = (
         db.query(Document)
         .filter(Document.status == DocumentStatus.COMPLETED.value)
         .filter(Document.total_amount.isnot(None))
-        .filter(Document.vendor_name.isnot(None))
-        .filter(Document.vendor_name != "")
         .all()
     )
 
@@ -158,17 +175,19 @@ def find_match_suggestions(
         return []
 
     suggestions = []
+    docs_with_name_suggestions = set()
 
+    # Tier 1: amount + fuzzy name similarity
     for doc in docs:
         doc_amount = abs(doc.total_amount)
-        doc_vendor = doc.vendor_name.strip()
+        doc_vendor = (doc.vendor_name or "").strip()
 
         if not doc_vendor:
             continue
 
         for txn in unmatched_txns:
-            counterparty = txn.counterparty_name or ""
-            if not counterparty.strip():
+            counterparty = (txn.counterparty_name or "").strip()
+            if not counterparty:
                 continue
 
             if abs(txn.amount) != doc_amount:
@@ -181,22 +200,31 @@ def find_match_suggestions(
             similarity = _name_similarity(doc_vendor, counterparty)
             if similarity >= similarity_threshold:
                 suggestions.append(
-                    {
-                        "document_id": doc.id,
-                        "document_filename": doc.filename,
-                        "document_vendor": doc.vendor_name,
-                        "document_amount": str(doc.total_amount),
-                        "transaction_id": txn.id,
-                        "transaction_counterparty": txn.counterparty_name,
-                        "transaction_amount": str(txn.amount),
-                        "transaction_date": txn.transaction_date.isoformat()
-                        if txn.transaction_date
-                        else None,
-                        "transaction_description": txn.description,
-                        "similarity": round(similarity, 2),
-                    }
+                    _make_suggestion(doc, txn, similarity, "name_similar")
                 )
+                docs_with_name_suggestions.add(doc.id)
 
-    # Sort by similarity descending
-    suggestions.sort(key=lambda s: s["similarity"], reverse=True)
+    # Tier 2: amount-only for docs without any tier-1 suggestions
+    for doc in docs:
+        if doc.id in docs_with_name_suggestions:
+            continue
+
+        doc_amount = abs(doc.total_amount)
+
+        for txn in unmatched_txns:
+            if abs(txn.amount) != doc_amount:
+                continue
+
+            # Skip if this would be a substring name match (auto-match territory)
+            doc_vendor = (doc.vendor_name or "").strip()
+            counterparty = (txn.counterparty_name or "").strip()
+            if doc_vendor and counterparty and _is_substring_match(doc_vendor, counterparty):
+                continue
+
+            suggestions.append(_make_suggestion(doc, txn, 0.0, "amount_only"))
+
+    # Sort: name_similar first (by similarity desc), then amount_only
+    suggestions.sort(
+        key=lambda s: (0 if s["match_type"] == "name_similar" else 1, -s["similarity"])
+    )
     return suggestions
