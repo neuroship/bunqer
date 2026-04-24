@@ -122,11 +122,20 @@ async def get_filter_options(db: Session = Depends(get_db)):
             "color": cat.color,
         })
 
+    # Get unique tags
+    tags = sorted([
+        row[0] for row in
+        db.query(distinct(Transaction.tag))
+        .filter(Transaction.tag.isnot(None))
+        .all()
+    ])
+
     return {
         "types": sorted(types),
         "sub_types": sorted(sub_types),
         "accounts": accounts,
         "categories": categories,
+        "tags": tags,
     }
 
 
@@ -151,6 +160,7 @@ async def list_transactions(
     sub_type: str | None = Query(None, description="Filter by sub type (e.g., REQUEST, PAYMENT)"),
     direction: str | None = Query(None, description="Filter by direction: 'in' or 'out'"),
     has_document: str | None = Query(None, description="Filter by document match: 'yes' or 'no'"),
+    tag: str | None = Query(None, description="Filter by tag"),
     sort_by: str | None = Query(None, description="Sort by field: 'amount', 'date'"),
     sort_order: str | None = Query(None, description="Sort order: 'asc' or 'desc'"),
     limit: int = Query(50, le=1000),
@@ -179,6 +189,7 @@ async def list_transactions(
             Transaction.description.ilike(search_term),
             Transaction.counterparty_name.ilike(search_term),
             Transaction.counterparty_iban.ilike(search_term),
+            Transaction.tag.ilike(search_term),
         ]
         # Also match on amount (support both . and , as decimal separator)
         try:
@@ -218,6 +229,9 @@ async def list_transactions(
             q = q.filter(Transaction.document_id.isnot(None))
         elif has_document == 'no':
             q = q.filter(Transaction.document_id.is_(None))
+
+    if tag:
+        q = q.filter(Transaction.tag == tag)
 
     # Get total count and sum before pagination
     total_count = q.count()

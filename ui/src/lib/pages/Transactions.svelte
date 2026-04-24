@@ -30,6 +30,7 @@
     account_id: '',
     category_id: '',
     direction: '',
+    tag: '',
     start_date: '',
     end_date: '',
     min_amount: '',
@@ -61,7 +62,7 @@
 
   // Collapsed filter sections - auto-open if filters are active from localStorage
   let showFilters = $state(
-    filters.account_id || filters.category_id || filters.direction || filters.start_date || filters.end_date ||
+    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.start_date || filters.end_date ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -440,9 +441,9 @@
     try {
       const tag = editingTagValue.trim() || null
       const updated = await api.transactions.update(transactionId, { tag })
-      // Update local state
       transactions = transactions.map(t => t.id === transactionId ? { ...t, tag: updated.tag } : t)
       cancelEditing()
+      loadFilterOptions()
     } catch (error) {
       console.error('Failed to update tag:', error)
       window.showToast?.(error.message, 'error')
@@ -689,7 +690,7 @@
 
   // Check if any filters are active
   let hasActiveFilters = $derived(
-    filters.account_id || filters.category_id || filters.direction || filters.start_date || filters.end_date ||
+    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.start_date || filters.end_date ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -860,6 +861,17 @@
               <option value="">All</option>
               <option value="yes">Has document</option>
               <option value="no">No document</option>
+            </select>
+          </div>
+
+          <!-- Tag -->
+          <div>
+            <label class="block text-xs text-va-muted mb-1">Tag</label>
+            <select bind:value={filters.tag} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+              <option value="">All tags</option>
+              {#each filterOptions.tags || [] as t}
+                <option value={t}>{t}</option>
+              {/each}
             </select>
           </div>
 
