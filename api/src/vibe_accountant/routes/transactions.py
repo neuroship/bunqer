@@ -1,6 +1,6 @@
 """Transaction management endpoints."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -210,7 +210,7 @@ async def list_transactions(
         q = q.filter(Transaction.transaction_date >= start_date)
 
     if end_date:
-        q = q.filter(Transaction.transaction_date <= end_date)
+        q = q.filter(Transaction.transaction_date < end_date + timedelta(days=1))
 
     if type:
         q = q.filter(Transaction.type == type)
@@ -276,7 +276,7 @@ async def get_transaction_stats(
         q = q.filter(Transaction.transaction_date >= start_date)
 
     if end_date:
-        q = q.filter(Transaction.transaction_date <= end_date)
+        q = q.filter(Transaction.transaction_date < end_date + timedelta(days=1))
 
     # Calculate stats
     total_count = q.count()
