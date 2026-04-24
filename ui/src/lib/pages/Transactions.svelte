@@ -14,6 +14,7 @@
   // Pagination state
   const PAGE_SIZE = 50
   let totalCount = $state(0)
+  let totalAmount = $state(0)
   let hasMore = $state(false)
   let loadingMore = $state(false)
   let observer = null
@@ -279,6 +280,7 @@
       const response = await api.transactions.list(params)
       transactions = response.items
       totalCount = response.total
+      totalAmount = parseFloat(response.total_amount) || 0
       hasMore = transactions.length < totalCount
     } catch (error) {
       console.error('Failed to load transactions:', error)
@@ -910,6 +912,16 @@
       {/if}
     </div>
   </Card>
+
+  <!-- Summary Strip -->
+  {#if !loading && transactions.length > 0}
+    <div class="flex items-center justify-between px-3 py-2 mb-4 bg-va-subtle border border-va-border rounded-lg text-xs text-va-muted">
+      <span>{totalCount} transaction{totalCount !== 1 ? 's' : ''}</span>
+      <span class:privacy-blur={privacyOn}>
+        Sum: <span class="font-medium {totalAmount >= 0 ? 'text-va-success' : 'text-va-danger'}">{formatCurrency(totalAmount)}</span>
+      </span>
+    </div>
+  {/if}
 
   <!-- Transactions List -->
   <Card>

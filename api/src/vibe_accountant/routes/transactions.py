@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
@@ -135,6 +135,7 @@ class TransactionListResponse(BaseModel):
 
     items: list[TransactionResponse]
     total: int
+    total_amount: Decimal
 
 
 @router.get("", response_model=TransactionListResponse)
@@ -218,8 +219,9 @@ async def list_transactions(
         elif has_document == 'no':
             q = q.filter(Transaction.document_id.is_(None))
 
-    # Get total count before pagination
+    # Get total count and sum before pagination
     total_count = q.count()
+    total_amount = q.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
 
     # Apply sorting
     sort_column = Transaction.transaction_date
@@ -236,7 +238,7 @@ async def list_transactions(
 
     logger.info(f"GET /transactions: total={total_count}, returning {len(transactions)} (limit={limit}, offset={offset})")
 
-    return TransactionListResponse(items=[_to_response(t) for t in transactions], total=total_count)
+    return TransactionListResponse(items=[_to_response(t) for t in transactions], total=total_count, total_amount=total_amount)
 
 
 @router.get("/stats")
