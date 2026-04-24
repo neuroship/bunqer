@@ -243,7 +243,9 @@ export const setup = {
   setupAccounts: (data) => request('/setup/bunq/accounts', { method: 'POST', body: data }),
   syncNow: () => request('/setup/sync-now', { method: 'POST' }),
   resync: () => request('/setup/resync', { method: 'POST' }),
-  backfill: () => request('/setup/backfill', { method: 'POST' })
+  backfill: () => request('/setup/backfill', { method: 'POST' }),
+  listAccounts: () => request('/setup/accounts'),
+  deleteAccount: (id) => request(`/setup/accounts/${id}`, { method: 'DELETE' })
 }
 
 // Transactions

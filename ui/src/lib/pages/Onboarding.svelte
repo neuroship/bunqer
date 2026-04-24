@@ -12,13 +12,15 @@
   let monetaryAccounts = $state([])
   let selectedAccounts = $state([])
   let importResults = $state(null)
+  let existingAccounts = $state([])
+  let deletingAccountId = $state(null)
 
   // Form state
   let integrationName = $state('')
   let apiKey = $state('')
 
   onMount(async () => {
-    await loadIntegrations()
+    await Promise.all([loadIntegrations(), loadAccounts()])
   })
 
   async function loadIntegrations() {
@@ -26,6 +28,31 @@
       integrations = await api.integrations.list()
     } catch (error) {
       console.error('Failed to load integrations:', error)
+    }
+  }
+
+  async function loadAccounts() {
+    try {
+      existingAccounts = await api.setup.listAccounts()
+    } catch (error) {
+      console.error('Failed to load accounts:', error)
+    }
+  }
+
+  async function deleteAccount(account) {
+    if (!confirm(`Remove "${account.name}" and all its ${account.transaction_count} transactions? This cannot be undone.`)) {
+      return
+    }
+
+    deletingAccountId = account.id
+    try {
+      await api.setup.deleteAccount(account.id)
+      existingAccounts = existingAccounts.filter(a => a.id !== account.id)
+      window.showToast?.(`Removed ${account.name}`, 'success')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      deletingAccountId = null
     }
   }
 
@@ -322,5 +349,43 @@
         </div>
       </div>
     </Card>
+  {/if}
+
+  <!-- Existing Accounts -->
+  {#if existingAccounts.length > 0}
+    <div class="mt-6">
+      <Card title="Connected Accounts">
+        <p class="text-va-muted text-xs mb-3">Remove an account to permanently delete it and all its transactions.</p>
+        <div class="space-y-2">
+          {#each existingAccounts as account}
+            <div class="flex items-center justify-between p-3 rounded-lg bg-va-hover/30 border border-va-border/30">
+              <div>
+                <div class="text-sm text-va-text font-medium">{account.name}</div>
+                <div class="text-xs text-va-muted mt-0.5">
+                  {account.iban || 'No IBAN'} &middot; {account.transaction_count} transactions
+                </div>
+              </div>
+              <button
+                onclick={() => deleteAccount(account)}
+                disabled={deletingAccountId === account.id}
+                class="p-1.5 rounded-lg text-va-muted hover:text-va-danger hover:bg-va-danger/10 transition-all disabled:opacity-50"
+                title="Remove account"
+              >
+                {#if deletingAccountId === account.id}
+                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                {:else}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                {/if}
+              </button>
+            </div>
+          {/each}
+        </div>
+      </Card>
+    </div>
   {/if}
 </div>

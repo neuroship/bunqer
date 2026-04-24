@@ -331,6 +331,16 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         return f"EUR {amount:,.2f}"
 
     pdf = FPDF()
+
+    # Register custom fonts
+    fonts_dir = str(
+        __import__("pathlib").Path(__file__).resolve().parent.parent / "fonts"
+    )
+    pdf.add_font("SpaceGrotesk", "", f"{fonts_dir}/SpaceGrotesk-Regular.ttf")
+    pdf.add_font("SpaceGrotesk", "B", f"{fonts_dir}/SpaceGrotesk-Bold.ttf")
+    pdf.add_font("JetBrainsMono", "", f"{fonts_dir}/JetBrainsMono-Regular.ttf")
+    pdf.add_font("JetBrainsMono", "B", f"{fonts_dir}/JetBrainsMono-Bold.ttf")
+
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=20)
 
@@ -366,11 +376,11 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     pdf.set_y(company_y)
 
     if company and company.name:
-        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_font("SpaceGrotesk", "B", 13)
         pdf.set_text_color(17, 24, 39)
         pdf.cell(95, 6, company.name, new_x="LMARGIN", new_y="NEXT")
 
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font("SpaceGrotesk", "", 9)
         pdf.set_text_color(107, 114, 128)
         if company.address:
             pdf.cell(95, 4.5, company.address, new_x="LMARGIN", new_y="NEXT")
@@ -393,30 +403,33 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
 
     # --- Invoice title + meta (right side) ---
     pdf.set_y(10)
-    pdf.set_font("Helvetica", "B", 28)
+    pdf.set_font("SpaceGrotesk", "B", 28)
     pdf.set_text_color(17, 24, 39)
     pdf.cell(0, 14, "INVOICE", align="R", new_x="LMARGIN", new_y="NEXT")
 
     meta_y = 26
     pdf.set_y(meta_y)
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
     pdf.cell(120)
     pdf.cell(30, 6, "Invoice #", align="R")
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font("JetBrainsMono", "B", 10)
     pdf.set_text_color(17, 24, 39)
     pdf.cell(40, 6, invoice.invoice_number, align="R", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
     pdf.cell(120)
     pdf.cell(30, 6, "Date", align="R")
+    pdf.set_font("JetBrainsMono", "", 10)
     pdf.set_text_color(17, 24, 39)
     pdf.cell(40, 6, fmt_date(invoice.invoice_date), align="R", new_x="LMARGIN", new_y="NEXT")
 
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
     pdf.cell(120)
     pdf.cell(30, 6, "Due Date", align="R")
+    pdf.set_font("JetBrainsMono", "", 10)
     pdf.set_text_color(17, 24, 39)
     pdf.cell(40, 6, fmt_date(invoice.due_date), align="R", new_x="LMARGIN", new_y="NEXT")
 
@@ -429,7 +442,7 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         "cancelled": (156, 163, 175),
     }
     sr, sg, sb = status_colors.get(invoice.status, (107, 114, 128))
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("SpaceGrotesk", "B", 9)
     status_w = pdf.get_string_width(invoice.status.upper()) + 8
     pdf.set_fill_color(sr, sg, sb)
     pdf.set_text_color(255, 255, 255)
@@ -449,7 +462,7 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     pdf.ln(6)
 
     # --- Bill To ---
-    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_font("SpaceGrotesk", "B", 8)
     pdf.set_text_color(107, 114, 128)
     pdf.cell(0, 5, "BILL TO", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
@@ -463,11 +476,11 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         pdf.set_line_width(0.2)
 
         pdf.set_x(x + 4)
-        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_font("SpaceGrotesk", "B", 11)
         pdf.set_text_color(17, 24, 39)
         pdf.cell(0, 6, client.name, new_x="LMARGIN", new_y="NEXT")
 
-        pdf.set_font("Helvetica", "", 10)
+        pdf.set_font("SpaceGrotesk", "", 10)
         pdf.set_text_color(55, 65, 81)
         if client.address:
             pdf.set_x(x + 4)
@@ -481,14 +494,18 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
             pdf.cell(0, 5, client.country, new_x="LMARGIN", new_y="NEXT")
         if client.vat_number:
             pdf.set_x(x + 4)
+            pdf.set_font("SpaceGrotesk", "", 10)
             pdf.set_text_color(107, 114, 128)
             pdf.cell(15, 5, "VAT: ")
+            pdf.set_font("JetBrainsMono", "", 9)
             pdf.set_text_color(55, 65, 81)
             pdf.cell(0, 5, client.vat_number, new_x="LMARGIN", new_y="NEXT")
         if client.chamber_of_commerce:
             pdf.set_x(x + 4)
+            pdf.set_font("SpaceGrotesk", "", 10)
             pdf.set_text_color(107, 114, 128)
             pdf.cell(15, 5, "KvK: ")
+            pdf.set_font("JetBrainsMono", "", 9)
             pdf.set_text_color(55, 65, 81)
             pdf.cell(0, 5, client.chamber_of_commerce, new_x="LMARGIN", new_y="NEXT")
 
@@ -499,7 +516,7 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     headers = ["Description", "Qty", "Unit Price", "VAT %", "Total"]
 
     pdf.set_fill_color(243, 244, 246)
-    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_font("SpaceGrotesk", "B", 8)
     pdf.set_text_color(107, 114, 128)
     for i, (header, w) in enumerate(zip(headers, col_widths)):
         align = "L" if i == 0 else "R" if i in [2, 4] else "C"
@@ -511,7 +528,7 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + sum(col_widths), pdf.get_y())
     pdf.set_line_width(0.2)
 
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(31, 41, 55)
     line_height = 5
     for item in invoice.items:
@@ -526,10 +543,12 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
 
         # Render remaining columns vertically centered in the row
         pdf.set_xy(x_start + col_widths[0], y_start)
+        pdf.set_font("JetBrainsMono", "", 9)
         pdf.cell(col_widths[1], row_height, str(item.quantity), align="C")
         pdf.cell(col_widths[2], row_height, fmt_amount(item.unit_price), align="R")
         pdf.cell(col_widths[3], row_height, f"{item.vat_rate}%", align="C")
         pdf.cell(col_widths[4], row_height, fmt_amount(item.line_total), align="R")
+        pdf.set_font("SpaceGrotesk", "", 10)
         pdf.set_y(y_start + row_height)
         pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + sum(col_widths), pdf.get_y())
 
@@ -540,17 +559,20 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     label_w = col_widths[2] + col_widths[3]
     value_w = col_widths[4]
 
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
     pdf.set_x(totals_x)
     pdf.cell(label_w, 7, "Subtotal", align="R")
+    pdf.set_font("JetBrainsMono", "", 10)
     pdf.set_text_color(31, 41, 55)
     pdf.cell(value_w, 7, fmt_amount(invoice.subtotal), align="R")
     pdf.ln()
 
+    pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
     pdf.set_x(totals_x)
     pdf.cell(label_w, 7, "VAT", align="R")
+    pdf.set_font("JetBrainsMono", "", 10)
     pdf.set_text_color(31, 41, 55)
     pdf.cell(value_w, 7, fmt_amount(invoice.vat_amount), align="R")
     pdf.ln()
@@ -562,20 +584,21 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     pdf.set_line_width(0.2)
     pdf.ln(2)
 
-    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_font("SpaceGrotesk", "B", 13)
     pdf.set_text_color(17, 24, 39)
     pdf.set_x(totals_x)
     pdf.cell(label_w, 9, "Total", align="R")
+    pdf.set_font("JetBrainsMono", "B", 13)
     pdf.cell(value_w, 9, fmt_amount(invoice.total_amount), align="R")
     pdf.ln()
 
     # --- Notes ---
     if invoice.notes:
         pdf.ln(10)
-        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_font("SpaceGrotesk", "B", 8)
         pdf.set_text_color(107, 114, 128)
         pdf.cell(0, 5, "NOTES", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 10)
+        pdf.set_font("SpaceGrotesk", "", 10)
         pdf.set_text_color(55, 65, 81)
         pdf.multi_cell(0, 5, invoice.notes)
 
@@ -586,16 +609,16 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         pdf.set_line_width(0.3)
         pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
         pdf.ln(4)
-        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_font("SpaceGrotesk", "B", 8)
         pdf.set_text_color(107, 114, 128)
         pdf.cell(0, 5, "PAYMENT DETAILS", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 10)
+        pdf.set_font("SpaceGrotesk", "", 10)
         pdf.set_text_color(55, 65, 81)
         if company.iban:
             pdf.cell(20, 5, "IBAN: ")
-            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_font("JetBrainsMono", "B", 10)
             pdf.cell(0, 5, company.iban, new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font("Helvetica", "", 10)
+            pdf.set_font("SpaceGrotesk", "", 10)
         if company.bank_name:
             pdf.cell(20, 5, "Bank: ")
             pdf.cell(0, 5, company.bank_name, new_x="LMARGIN", new_y="NEXT")

@@ -23,6 +23,9 @@ bunqer connects to your [bunq](https://www.bunq.com) bank account and gives you 
 - **Passkey authentication** — passwordless login via WebAuthn/FIDO2 alongside traditional auth
 - **Company settings** — upload your logo and customize invoice details
 - **Rule import/export** — back up and share categorization rules as JSON
+- **Document processing** — upload invoices and tax letters; automatic OCR and AI-powered structured data extraction
+- **Document-transaction matching** — link uploaded documents to bank transactions by reference or amount
+- **Duplicate detection** — detect exact (SHA-256 hash) and near-duplicate (OCR text similarity) documents
 - **Dark theme** — designed for comfortable extended use
 
 ## Tech Stack
@@ -33,6 +36,8 @@ bunqer connects to your [bunq](https://www.bunq.com) bank account and gives you 
 | Frontend | Svelte 5, Tailwind CSS, FlyonUI, Chart.js |
 | Database | PostgreSQL 16 |
 | Auth | JWT + WebAuthn passkeys |
+| Document AI | Mistral AI (OCR + LLM extraction) |
+| Storage | AWS S3 (document files) |
 | Bank API | bunq SDK |
 | Package Mgmt | uv (Python), npm (JS) |
 | Task Runner | go-task |
@@ -100,6 +105,14 @@ VITE_API_URL=http://localhost:8000
 AUTH_USERNAME=admin
 AUTH_PASSWORD_HASH=your-bcrypt-hash-here
 
+# Document Processing (Mistral AI)
+MISTRAL_API_KEY=your-mistral-api-key-here
+
+# Document Storage (S3)
+AWS_ACCESS_KEY_ID=your-aws-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret
+AWS_S3_BUCKET_NAME=your-bucket-name
+
 # WebAuthn / Passkeys (optional, defaults work for localhost)
 # WEBAUTHN_RP_ID=yourdomain.com
 # WEBAUTHN_ORIGIN=https://yourdomain.com
@@ -130,6 +143,39 @@ task db:revision -- "add users"  # Create new migration
 task db:reset                    # Drop and re-migrate
 ```
 
+## Document Processing
+
+Uploaded documents (invoices, tax letters) go through an automated three-phase pipeline:
+
+### Pipeline
+
+1. **OCR** — `mistral-ocr-latest` converts PDF/image to markdown text via a presigned S3 URL
+2. **Structured extraction** — `mistral-large-latest` (temperature=0) extracts key fields into JSON using a schema prompt
+3. **Denormalization** — extracted fields are copied to dedicated DB columns for search/filter
+
+Processing runs as a background task. Status flows: `pending → processing → completed | failed`. Failed documents can be reprocessed.
+
+### Extraction Schemas
+
+**Invoices** (`sales_invoice`, `purchase_invoice`):
+vendor name, customer name, invoice number, dates, line items, subtotal, VAT, total, currency, IBAN, payment reference
+
+**Tax letters** (`tax_letter`):
+authority name, subject, amount, deadline, payment reference, tax period, description, currency
+
+### Duplicate Detection
+
+- **Exact** — SHA-256 content hash checked on upload
+- **Near-duplicate** — OCR text similarity (SequenceMatcher, threshold 0.85) across completed documents
+
+### Supported File Types
+
+PDF, PNG, JPEG, WebP, TIFF (max 20 MB)
+
+### Configuration
+
+Requires `MISTRAL_API_KEY` and AWS S3 credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`) in `.env`.
+
 ## Project Structure
 
 ```
@@ -142,7 +188,7 @@ bunqer/
 │   │   ├── bunq_client.py      # bunq API integration
 │   │   ├── models/             # SQLAlchemy models + Pydantic schemas
 │   │   ├── routes/             # API endpoints
-│   │   └── services/           # Business logic
+│   │   └── services/           # Business logic (S3, OCR, document processor)
 │   ├── alembic/                # Database migrations
 │   └── pyproject.toml
 ├── ui/                         # Svelte 5 frontend

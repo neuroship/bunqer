@@ -15,6 +15,42 @@ from .events import broadcast_event
 router = APIRouter(prefix="/setup", tags=["setup"])
 
 
+@router.get("/accounts")
+def list_accounts(db: Session = Depends(get_db)):
+    """List all configured accounts with transaction counts."""
+    accounts = db.query(Account).all()
+    result = []
+    for account in accounts:
+        txn_count = db.query(Transaction).filter(Transaction.account_id == account.id).count()
+        result.append({
+            "id": account.id,
+            "name": account.name,
+            "iban": account.iban,
+            "tag": account.tag,
+            "integration_id": account.integration_id,
+            "monetary_account_id": account.monetary_account_id,
+            "transaction_count": txn_count,
+            "created_at": account.created_at.isoformat() if account.created_at else None,
+        })
+    return result
+
+
+@router.delete("/accounts/{account_id}")
+def delete_account(account_id: int, db: Session = Depends(get_db)):
+    """Delete an account and all its transactions."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    account_name = account.name
+    txn_count = db.query(Transaction).filter(Transaction.account_id == account_id).delete()
+    db.delete(account)
+    db.commit()
+
+    logger.info(f"Deleted account '{account_name}' (ID: {account_id}) and {txn_count} transactions")
+    return {"status": "deleted", "account": account_name, "transactions_deleted": txn_count}
+
+
 @router.post("/sync")
 async def trigger_sync(background_tasks: BackgroundTasks):
     """Manually trigger sync for all accounts."""
