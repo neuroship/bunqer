@@ -20,9 +20,15 @@
   let username = $state(getUsername())
   let unsubscribe = null
   let sidebarOpen = $state(false)
+  let openDocumentId = $state(null)
 
   function navigate(page) {
     currentPage = page
+  }
+
+  function handleNavigateToDocument(e) {
+    openDocumentId = e.detail.documentId
+    currentPage = 'documents'
   }
 
   function showToast(message, type = 'info') {
@@ -96,6 +102,7 @@
   onMount(() => {
     window.showToast = showToast
     setOnUnauthorized(handleUnauthorized)
+    window.addEventListener('navigate-to-document', handleNavigateToDocument)
 
     // Only subscribe to events if authenticated
     if (authenticated) {
@@ -112,6 +119,7 @@
 
   onDestroy(() => {
     if (unsubscribe) unsubscribe()
+    window.removeEventListener('navigate-to-document', handleNavigateToDocument)
   })
 </script>
 
@@ -153,7 +161,7 @@
       {:else if currentPage === 'categories'}
         <Categories />
       {:else if currentPage === 'documents'}
-        <Documents />
+        <Documents bind:openDocumentId={openDocumentId} />
       {:else if currentPage === 'settings'}
         <Settings />
       {/if}

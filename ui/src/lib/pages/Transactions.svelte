@@ -505,6 +505,19 @@
     }
   }
 
+  function navigateToDocument(documentId) {
+    window.dispatchEvent(new CustomEvent('navigate-to-document', { detail: { documentId } }))
+  }
+
+  async function downloadDocument(documentId) {
+    try {
+      const res = await api.documents.getViewUrl(documentId)
+      window.open(res.url, '_blank')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
   async function unlinkDocument(transactionId) {
     try {
       const updated = await api.transactions.update(transactionId, { document_id: null })
@@ -926,6 +939,7 @@
             <label class="block text-xs text-va-muted mb-1">Tag</label>
             <select bind:value={filters.tag} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
               <option value="">All tags</option>
+              <option value="none">No tag</option>
               {#each filterOptions.tags || [] as t}
                 <option value={t}>{t}</option>
               {/each}
@@ -1141,10 +1155,25 @@
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <span class="max-w-[100px] truncate">{transaction.document_filename}</span>
+                        <button
+                          onclick={() => navigateToDocument(transaction.document_id)}
+                          class="max-w-[100px] truncate hover:underline cursor-pointer"
+                          title="View in Documents"
+                        >
+                          {transaction.document_filename}
+                        </button>
+                        <button
+                          onclick={() => downloadDocument(transaction.document_id)}
+                          class="p-0.5 rounded hover:bg-va-accent/20 transition-colors"
+                          title="Open raw file"
+                        >
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </button>
                         <button
                           onclick={() => unlinkDocument(transaction.id)}
-                          class="ml-0.5 p-0.5 rounded hover:bg-va-danger/20 hover:text-va-danger transition-colors"
+                          class="p-0.5 rounded hover:bg-va-danger/20 hover:text-va-danger transition-colors"
                           title="Disconnect document"
                         >
                           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

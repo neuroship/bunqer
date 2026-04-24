@@ -240,7 +240,10 @@ async def list_transactions(
             q = q.filter(Transaction.document_id.is_(None))
 
     if tag:
-        q = q.filter(Transaction.tag == tag)
+        if tag == "none":
+            q = q.filter(Transaction.tag.is_(None))
+        else:
+            q = q.filter(Transaction.tag == tag)
 
     # Get total count and sum before pagination
     total_count = q.count()

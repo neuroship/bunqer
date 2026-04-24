@@ -8,6 +8,21 @@ from ..logger import logger
 from ..models import Document, DocumentStatus, Transaction
 
 
+def _unmatched_documents(db: Session):
+    """Return completed documents not already linked to any transaction."""
+    matched_doc_ids = (
+        db.query(Transaction.document_id)
+        .filter(Transaction.document_id.isnot(None))
+        .subquery()
+    )
+    return (
+        db.query(Document)
+        .filter(Document.status == DocumentStatus.COMPLETED.value)
+        .filter(~Document.id.in_(matched_doc_ids))
+        .all()
+    )
+
+
 def match_documents_to_transactions(db: Session) -> int:
     """Match unmatched documents to transactions.
 
@@ -19,11 +34,7 @@ def match_documents_to_transactions(db: Session) -> int:
 
     Returns count of new matches made.
     """
-    docs = (
-        db.query(Document)
-        .filter(Document.status == DocumentStatus.COMPLETED.value)
-        .all()
-    )
+    docs = _unmatched_documents(db)
 
     if not docs:
         return 0
@@ -155,12 +166,7 @@ def find_match_suggestions(
 
     Each suggestion includes a match_type field: "name_similar" or "amount_only".
     """
-    docs = (
-        db.query(Document)
-        .filter(Document.status == DocumentStatus.COMPLETED.value)
-        .filter(Document.total_amount.isnot(None))
-        .all()
-    )
+    docs = [d for d in _unmatched_documents(db) if d.total_amount is not None]
 
     if not docs:
         return []

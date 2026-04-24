@@ -5,6 +5,8 @@
   import Modal from '../components/Modal.svelte'
   import api from '../api.js'
 
+  let { openDocumentId = $bindable(null) } = $props()
+
   let documents = $state([])
   let total = $state(0)
   let loading = $state(true)
@@ -65,6 +67,15 @@
     return () => {
       if (pollInterval) clearInterval(pollInterval)
       clearTimeout(debounceTimer)
+    }
+  })
+
+  // Auto-open document detail when navigated from another page
+  $effect(() => {
+    if (openDocumentId && !loading) {
+      const docId = openDocumentId
+      openDocumentId = null
+      openDetail({ id: docId })
     }
   })
 
