@@ -88,6 +88,62 @@ def resync_all_transactions(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Re-sync failed due to an internal error")
 
 
+@router.post("/backfill")
+def backfill_transactions(db: Session = Depends(get_db)):
+    """Fetch older historical transactions without deleting existing data.
+
+    Resets last_synced_at so sync goes back 5 years, but keeps existing
+    transactions (deduplication by bunq_id prevents duplicates).
+    """
+    import traceback
+    from .events import send_notification
+
+    try:
+        logger.info("=== BACKFILL: Fetching historical transactions ===")
+
+        accounts = db.query(Account).filter(Account.monetary_account_id.isnot(None)).all()
+        if not accounts:
+            return {"status": "no_accounts", "message": "No accounts configured"}
+
+        # Reset last_synced_at to force full history fetch
+        for account in accounts:
+            account.last_synced_at = None
+        db.commit()
+
+        results = []
+        for account in accounts:
+            integration = db.query(Integration).filter(Integration.id == account.integration_id).first()
+            if not integration:
+                results.append({"account": account.name, "error": "Integration not found"})
+                continue
+
+            try:
+                bunq_client = BunqClient(
+                    api_key=integration.secret_key,
+                    account_key=integration.name,
+                )
+                new_count = sync_account_transactions_sync(db, bunq_client, account.id)
+                results.append({"account": account.name, "new_transactions": new_count})
+            except Exception as e:
+                logger.error(f"Error backfilling {account.name}: {e}")
+                results.append({"account": account.name, "error": str(e)})
+
+        total_new = sum(r.get("new_transactions", 0) for r in results)
+        logger.info(f"=== BACKFILL complete: {total_new} new transactions imported ===")
+        send_notification(f"Backfill complete: {total_new} new transactions imported", "success")
+
+        return {
+            "status": "completed",
+            "new_transactions": total_new,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error in backfill: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Backfill failed due to an internal error")
+
+
 @router.post("/sync-now")
 def trigger_sync_now(db: Session = Depends(get_db)):
     """Synchronously sync all accounts (for debugging)."""
@@ -367,14 +423,14 @@ def sync_account_transactions_sync(db, bunq_client: BunqClient, account_id: int)
 
         send_sync_started(account.name, account.id)
 
-        # Determine start time: last sync or 365 days ago for initial sync
+        # Determine start time: last sync or 5 years ago for initial/full sync
         # Subtract 2 hours buffer to handle timezone differences between local time and bunq API (UTC)
         if account.last_synced_at:
             start_time = account.last_synced_at - timedelta(hours=2)
             log(f"    Incremental sync from: {start_time} (last_synced_at: {account.last_synced_at}, with 2h buffer)")
         else:
-            start_time = datetime.now() - timedelta(days=365)
-            log(f"    Initial sync, fetching from: {start_time}")
+            start_time = datetime.now() - timedelta(days=1825)
+            log(f"    Initial sync, fetching from: {start_time} (5 years)")
 
         log(f"    Calling bunq API to get transactions...")
         transactions = bunq_client.get_transactions(

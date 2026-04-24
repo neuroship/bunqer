@@ -130,12 +130,21 @@ async def get_filter_options(db: Session = Depends(get_db)):
         .all()
     ])
 
+    # Get distinct years from transactions
+    from sqlalchemy import extract
+    years = sorted([
+        int(row[0]) for row in
+        db.query(distinct(extract('year', Transaction.transaction_date))).all()
+        if row[0] is not None
+    ], reverse=True)
+
     return {
         "types": sorted(types),
         "sub_types": sorted(sub_types),
         "accounts": accounts,
         "categories": categories,
         "tags": tags,
+        "years": years,
     }
 
 

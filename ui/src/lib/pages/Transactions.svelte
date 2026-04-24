@@ -31,8 +31,9 @@
     category_id: '',
     direction: '',
     tag: '',
-    start_date: '',
-    end_date: '',
+    year: '',
+    month: '',
+    quarter: '',
     min_amount: '',
     max_amount: '',
     has_document: ''
@@ -62,7 +63,7 @@
 
   // Collapsed filter sections - auto-open if filters are active from localStorage
   let showFilters = $state(
-    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.start_date || filters.end_date ||
+    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -272,12 +273,39 @@
     }
   }
 
+  function buildParams(extraOverrides = {}) {
+    const { year, month, quarter, ...rest } = filters
+    const params = { ...rest, ...extraOverrides }
+
+    // Compute start_date/end_date from year/month/quarter
+    if (year) {
+      const y = parseInt(year)
+      if (quarter) {
+        const q = parseInt(quarter)
+        const startMonth = (q - 1) * 3
+        params.start_date = `${y}-${String(startMonth + 1).padStart(2, '0')}-01`
+        const endDate = new Date(y, startMonth + 3, 0) // last day of quarter's last month
+        params.end_date = `${y}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+      } else if (month) {
+        const m = parseInt(month)
+        params.start_date = `${y}-${String(m).padStart(2, '0')}-01`
+        const endDate = new Date(y, m, 0) // last day of month
+        params.end_date = `${y}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+      } else {
+        params.start_date = `${y}-01-01`
+        params.end_date = `${y}-12-31`
+      }
+    }
+
+    if (sortBy) params.sort_by = sortBy
+    if (sortOrder) params.sort_order = sortOrder
+    return params
+  }
+
   async function loadTransactions() {
     loading = true
     try {
-      const params = { ...filters, limit: PAGE_SIZE, offset: 0 }
-      if (sortBy) params.sort_by = sortBy
-      if (sortOrder) params.sort_order = sortOrder
+      const params = buildParams({ limit: PAGE_SIZE, offset: 0 })
       const response = await api.transactions.list(params)
       transactions = response.items
       totalCount = response.total
@@ -295,9 +323,7 @@
     if (loadingMore || !hasMore) return
     loadingMore = true
     try {
-      const params = { ...filters, limit: PAGE_SIZE, offset: transactions.length }
-      if (sortBy) params.sort_by = sortBy
-      if (sortOrder) params.sort_order = sortOrder
+      const params = buildParams({ limit: PAGE_SIZE, offset: transactions.length })
       const response = await api.transactions.list(params)
       transactions = [...transactions, ...response.items]
       hasMore = transactions.length < response.total
@@ -545,6 +571,23 @@
     }
   }
 
+  let backfilling = $state(false)
+
+  async function backfillTransactions() {
+    backfilling = true
+    try {
+      const result = await api.setup.backfill()
+      window.showToast?.(`Backfill complete: ${result.new_transactions} new transactions`, 'success')
+      loadTransactions()
+      loadFilterOptions()
+    } catch (error) {
+      console.error('Failed to backfill:', error)
+      window.showToast?.(error.message, 'error')
+    } finally {
+      backfilling = false
+    }
+  }
+
   // Create rule functions
   function openCreateRuleModal(transaction) {
     const conditions = []
@@ -690,7 +733,7 @@
 
   // Check if any filters are active
   let hasActiveFilters = $derived(
-    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.start_date || filters.end_date ||
+    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -720,6 +763,20 @@
         {:else}
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        {/if}
+      </button>
+      <button
+        onclick={backfillTransactions}
+        disabled={backfilling}
+        class="p-2 rounded-lg border-2 transition-all bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed"
+        title="Fetch older historical transactions (up to 5 years)"
+      >
+        {#if backfilling}
+          <div class="w-4 h-4 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
+        {:else}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         {/if}
       </button>
@@ -875,25 +932,47 @@
             </select>
           </div>
 
-          <!-- Date Range -->
+          <!-- Year -->
           <div>
-            <label class="block text-xs text-va-muted mb-1">From Date</label>
-            <input 
-              type="date" 
-              bind:value={filters.start_date} 
-              onchange={handleFilterSelect}
-              class="input input-sm bg-va-canvas border-va-border text-va-text"
-            />
+            <label class="block text-xs text-va-muted mb-1">Year</label>
+            <select bind:value={filters.year} onchange={(e) => { if (!filters.year) { filters.month = ''; filters.quarter = '' } handleFilterSelect(e) }} class="input input-sm bg-va-canvas border-va-border text-va-text">
+              <option value="">All years</option>
+              {#each filterOptions.years || [] as y}
+                <option value={y}>{y}</option>
+              {/each}
+            </select>
           </div>
 
+          <!-- Quarter -->
           <div>
-            <label class="block text-xs text-va-muted mb-1">To Date</label>
-            <input 
-              type="date" 
-              bind:value={filters.end_date} 
-              onchange={handleFilterSelect}
-              class="input input-sm bg-va-canvas border-va-border text-va-text"
-            />
+            <label class="block text-xs text-va-muted mb-1">Quarter</label>
+            <select bind:value={filters.quarter} onchange={(e) => { if (filters.quarter) filters.month = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
+              <option value="">All quarters</option>
+              <option value="1">Q1 (Jan–Mar)</option>
+              <option value="2">Q2 (Apr–Jun)</option>
+              <option value="3">Q3 (Jul–Sep)</option>
+              <option value="4">Q4 (Oct–Dec)</option>
+            </select>
+          </div>
+
+          <!-- Month -->
+          <div>
+            <label class="block text-xs text-va-muted mb-1">Month</label>
+            <select bind:value={filters.month} onchange={(e) => { if (filters.month) filters.quarter = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
+              <option value="">All months</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
           </div>
 
           <!-- Amount Range -->
