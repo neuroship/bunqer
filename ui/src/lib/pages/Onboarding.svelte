@@ -14,6 +14,8 @@
   let importResults = $state(null)
   let existingAccounts = $state([])
   let deletingAccountId = $state(null)
+  let editingAccountId = $state(null)
+  let editingName = $state('')
 
   // Form state
   let integrationName = $state('')
@@ -36,6 +38,40 @@
       existingAccounts = await api.setup.listAccounts()
     } catch (error) {
       console.error('Failed to load accounts:', error)
+    }
+  }
+
+  function startEditing(account) {
+    editingAccountId = account.id
+    editingName = account.name
+  }
+
+  function cancelEditing() {
+    editingAccountId = null
+    editingName = ''
+  }
+
+  async function saveAccountName(account) {
+    const trimmed = editingName.trim()
+    if (!trimmed) {
+      window.showToast?.('Name cannot be empty', 'error')
+      return
+    }
+    if (trimmed === account.name) {
+      cancelEditing()
+      return
+    }
+
+    try {
+      await api.setup.renameAccount(account.id, trimmed)
+      existingAccounts = existingAccounts.map(a =>
+        a.id === account.id ? { ...a, name: trimmed } : a
+      )
+      window.showToast?.(`Renamed to "${trimmed}"`, 'success')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      cancelEditing()
     }
   }
 
@@ -359,29 +395,64 @@
         <div class="space-y-2">
           {#each existingAccounts as account}
             <div class="flex items-center justify-between p-3 rounded-lg bg-va-hover/30 border border-va-border/30">
-              <div>
-                <div class="text-sm text-va-text font-medium">{account.name}</div>
+              <div class="flex-1 min-w-0 mr-2">
+                {#if editingAccountId === account.id}
+                  <form onsubmit={(e) => { e.preventDefault(); saveAccountName(account) }} class="flex items-center gap-2">
+                    <input
+                      type="text"
+                      bind:value={editingName}
+                      class="input input-sm bg-va-canvas border-va-border text-va-text w-full"
+                      autofocus
+                      onkeydown={(e) => { if (e.key === 'Escape') cancelEditing() }}
+                    />
+                    <button type="submit" class="p-1.5 rounded-lg text-va-muted hover:text-va-success hover:bg-va-success/10 transition-all" title="Save">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
+                    <button type="button" onclick={cancelEditing} class="p-1.5 rounded-lg text-va-muted hover:text-va-danger hover:bg-va-danger/10 transition-all" title="Cancel">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </form>
+                {:else}
+                  <div class="text-sm text-va-text font-medium">{account.name}</div>
+                {/if}
                 <div class="text-xs text-va-muted mt-0.5">
                   {account.iban || 'No IBAN'} &middot; {account.transaction_count} transactions
                 </div>
               </div>
-              <button
-                onclick={() => deleteAccount(account)}
-                disabled={deletingAccountId === account.id}
-                class="p-1.5 rounded-lg text-va-muted hover:text-va-danger hover:bg-va-danger/10 transition-all disabled:opacity-50"
-                title="Remove account"
-              >
-                {#if deletingAccountId === account.id}
-                  <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                  </svg>
-                {:else}
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
+              <div class="flex items-center gap-1">
+                {#if editingAccountId !== account.id}
+                  <button
+                    onclick={() => startEditing(account)}
+                    class="p-1.5 rounded-lg text-va-muted hover:text-va-accent hover:bg-va-accent/10 transition-all"
+                    title="Rename account"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
                 {/if}
-              </button>
+                <button
+                  onclick={() => deleteAccount(account)}
+                  disabled={deletingAccountId === account.id}
+                  class="p-1.5 rounded-lg text-va-muted hover:text-va-danger hover:bg-va-danger/10 transition-all disabled:opacity-50"
+                  title="Remove account"
+                >
+                  {#if deletingAccountId === account.id}
+                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                  {:else}
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  {/if}
+                </button>
+              </div>
             </div>
           {/each}
         </div>

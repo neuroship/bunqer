@@ -245,7 +245,8 @@ export const setup = {
   resync: () => request('/setup/resync', { method: 'POST' }),
   backfill: () => request('/setup/backfill', { method: 'POST' }),
   listAccounts: () => request('/setup/accounts'),
-  deleteAccount: (id) => request(`/setup/accounts/${id}`, { method: 'DELETE' })
+  deleteAccount: (id) => request(`/setup/accounts/${id}`, { method: 'DELETE' }),
+  renameAccount: (id, name) => request(`/setup/accounts/${id}`, { method: 'PATCH', body: { name } })
 }
 
 // Transactions

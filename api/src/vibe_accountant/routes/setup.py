@@ -35,6 +35,25 @@ def list_accounts(db: Session = Depends(get_db)):
     return result
 
 
+class RenameAccountRequest(BaseModel):
+    name: str
+
+
+@router.patch("/accounts/{account_id}")
+def rename_account(account_id: int, body: RenameAccountRequest, db: Session = Depends(get_db)):
+    """Rename an account."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    old_name = account.name
+    account.name = body.name.strip()
+    db.commit()
+
+    logger.info(f"Renamed account '{old_name}' to '{account.name}' (ID: {account_id})")
+    return {"status": "renamed", "id": account.id, "name": account.name}
+
+
 @router.delete("/accounts/{account_id}")
 def delete_account(account_id: int, db: Session = Depends(get_db)):
     """Delete an account and all its transactions."""
