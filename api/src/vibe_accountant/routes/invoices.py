@@ -555,9 +555,9 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
     pdf.ln(8)
 
     # --- Totals ---
-    totals_x = pdf.l_margin + col_widths[0] + col_widths[1]
-    label_w = col_widths[2] + col_widths[3]
-    value_w = col_widths[4]
+    value_w = 50
+    label_w = 40
+    totals_x = pdf.l_margin + sum(col_widths) - label_w - value_w
 
     pdf.set_font("SpaceGrotesk", "", 10)
     pdf.set_text_color(107, 114, 128)
