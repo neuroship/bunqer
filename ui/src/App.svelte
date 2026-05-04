@@ -3,6 +3,7 @@
   import Sidebar from './lib/components/Sidebar.svelte'
   import Onboarding from './lib/pages/Onboarding.svelte'
   import Transactions from './lib/pages/Transactions.svelte'
+  import Payments from './lib/pages/Payments.svelte'
   import Analytics from './lib/pages/Analytics.svelte'
   import Invoices from './lib/pages/Invoices.svelte'
   import Clients from './lib/pages/Clients.svelte'
@@ -152,6 +153,8 @@
         <Onboarding />
       {:else if currentPage === 'transactions'}
         <Transactions />
+      {:else if currentPage === 'payments'}
+        <Payments />
       {:else if currentPage === 'analytics'}
         <Analytics />
       {:else if currentPage === 'invoices'}

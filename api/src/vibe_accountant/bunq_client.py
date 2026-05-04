@@ -11,9 +11,15 @@ from bunq import ApiEnvironmentType, Pagination
 from bunq.sdk.context.api_context import ApiContext
 from bunq.sdk.context.bunq_context import BunqContext
 from bunq.sdk.model.generated.endpoint import (
+    DraftPaymentApiObject,
     MonetaryAccountBankApiObject,
     PaymentApiObject,
     UserApiObject,
+)
+from bunq.sdk.model.generated.object_ import (
+    AmountObject,
+    DraftPaymentEntryObject,
+    PointerObject,
 )
 from fastapi import HTTPException
 
@@ -292,3 +298,48 @@ class BunqClient:
     def get_monetary_account_by_id(self, account_id: int) -> dict[str, Any]:
         """Get a monetary account by its ID."""
         return MonetaryAccountBankApiObject.get(account_id).value
+
+    def create_draft_payment(
+        self,
+        monetary_account_id: int,
+        amount_value: str,
+        currency: str,
+        counterparty_iban: str,
+        counterparty_name: str,
+        description: str,
+    ) -> int:
+        """Create a draft payment requiring out-of-band approval in the bunq app.
+
+        Returns the created DraftPayment ID.
+        """
+        amount = AmountObject(value=amount_value, currency=currency)
+        counterparty_alias = PointerObject(
+            type_="IBAN",
+            value=counterparty_iban,
+            name=counterparty_name,
+        )
+        entry = DraftPaymentEntryObject(
+            amount=amount,
+            counterparty_alias=counterparty_alias,
+            description=description,
+        )
+        logger.info(
+            f"Creating draft payment: monetary_account_id={monetary_account_id}, "
+            f"amount={amount_value} {currency}, to={counterparty_name} ({counterparty_iban})"
+        )
+        response = DraftPaymentApiObject.create(
+            entries=[entry],
+            number_of_required_accepts=1,
+            monetary_account_id=monetary_account_id,
+        )
+        draft_id = response.value
+        logger.info(f"Draft payment created with id={draft_id}")
+        return draft_id
+
+    def get_draft_payment(self, monetary_account_id: int, draft_id: int) -> dict[str, Any]:
+        """Get a draft payment by ID."""
+        response = DraftPaymentApiObject.get(
+            draft_payment_id=draft_id,
+            monetary_account_id=monetary_account_id,
+        )
+        return json.loads(response.value.to_json())

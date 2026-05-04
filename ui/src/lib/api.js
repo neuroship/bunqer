@@ -387,6 +387,14 @@ export const documents = {
   backfillHashes: () => request('/documents/duplicates/backfill-hashes', { method: 'POST' }),
 }
 
+// Payments (bunq draft payments)
+export const payments = {
+  listCounterparties: () => request('/payments/counterparties'),
+  createDraft: (data) => request('/payments/draft', { method: 'POST', body: data }),
+  getDraft: (draftId, accountId) =>
+    request(`/payments/draft/${draftId}?account_id=${accountId}`)
+}
+
 // Company Settings
 export const companySettings = {
   get: () => request('/settings/company'),
@@ -485,6 +493,7 @@ export default {
   clients,
   invoices,
   documents,
+  payments,
   companySettings,
   passkeys,
   subscribeToEvents,

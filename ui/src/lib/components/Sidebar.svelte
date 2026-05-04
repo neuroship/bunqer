@@ -7,6 +7,7 @@
 
   const menuItems = [
     { id: 'transactions', label: 'Transactions', icon: 'icon-[tabler--credit-card]' },
+    { id: 'payments', label: 'Payments', icon: 'icon-[tabler--send]' },
     { id: 'analytics', label: 'Analytics', icon: 'icon-[tabler--chart-bar]' },
     { id: 'invoices', label: 'Invoices', icon: 'icon-[tabler--file-text]' },
     { id: 'clients', label: 'Clients', icon: 'icon-[tabler--users]' },
