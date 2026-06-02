@@ -58,21 +58,37 @@ export function clearAuth() {
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
   const token = getToken()
+  const timeoutMs = options.timeoutMs ?? 60_000
 
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  const { timeoutMs: _ignore, ...rest } = options
   const config = {
     headers: {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
-      ...options.headers
+      ...rest.headers
     },
-    ...options
+    ...rest,
+    signal: rest.signal ?? controller.signal
   }
 
   if (config.body && typeof config.body === 'object') {
     config.body = JSON.stringify(config.body)
   }
 
-  const response = await fetch(url, config)
+  let response
+  try {
+    response = await fetch(url, config)
+  } catch (e) {
+    clearTimeout(timer)
+    if (e.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000}s`)
+    }
+    throw e
+  }
+  clearTimeout(timer)
 
   // Handle unauthorized responses
   if (response.status === 401) {

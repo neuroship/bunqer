@@ -1,7 +1,8 @@
 """Payment endpoints (draft payments via bunq SDK)."""
 
+import concurrent.futures
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
@@ -226,23 +227,49 @@ def _fmt_bunq_dt(dt: datetime) -> str:
 @router.post("/schedule", response_model=SchedulePaymentResponse)
 def create_schedule_payment(payload: SchedulePaymentRequest, db: Session = Depends(get_db)):
     """Create a recurring scheduled payment. Auto-executes per schedule, no in-app approval."""
+    logger.info(
+        f"POST /payments/schedule: account_id={payload.account_id}, amount={payload.amount} {payload.currency}, "
+        f"start={payload.time_start.isoformat()}, end={payload.time_end.isoformat() if payload.time_end else None}, "
+        f"every {payload.recurrence_size} {payload.recurrence_unit}"
+    )
+
+    now_utc = datetime.now(timezone.utc)
+    start_aware = (
+        payload.time_start
+        if payload.time_start.tzinfo
+        else payload.time_start.replace(tzinfo=timezone.utc)
+    )
+    if start_aware <= now_utc:
+        raise HTTPException(
+            status_code=400,
+            detail="time_start must be in the future (UTC).",
+        )
+
     account, bunq_client = _get_account_and_client(db, payload.account_id)
 
     iban = payload.counterparty_iban.replace(" ", "").upper()
     amount_str = f"{payload.amount:.2f}"
 
     try:
-        schedule_payment_id = bunq_client.create_schedule_payment(
-            monetary_account_id=account.monetary_account_id,
-            amount_value=amount_str,
-            currency=payload.currency,
-            counterparty_iban=iban,
-            counterparty_name=payload.counterparty_name,
-            description=payload.description or "",
-            time_start=_fmt_bunq_dt(payload.time_start),
-            recurrence_unit=payload.recurrence_unit,
-            recurrence_size=payload.recurrence_size,
-            time_end=_fmt_bunq_dt(payload.time_end) if payload.time_end else None,
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(
+                bunq_client.create_schedule_payment,
+                monetary_account_id=account.monetary_account_id,
+                amount_value=amount_str,
+                currency=payload.currency,
+                counterparty_iban=iban,
+                counterparty_name=payload.counterparty_name,
+                description=payload.description or "",
+                time_start=_fmt_bunq_dt(payload.time_start),
+                recurrence_unit=payload.recurrence_unit,
+                recurrence_size=payload.recurrence_size,
+                time_end=_fmt_bunq_dt(payload.time_end) if payload.time_end else None,
+            )
+            schedule_payment_id = future.result(timeout=45)
+    except concurrent.futures.TimeoutError:
+        logger.error("Bunq schedule payment call timed out after 45s")
+        raise HTTPException(
+            status_code=504, detail="Bunq schedule payment timed out after 45s"
         )
     except HTTPException:
         raise
@@ -250,6 +277,7 @@ def create_schedule_payment(payload: SchedulePaymentRequest, db: Session = Depen
         logger.error(f"Failed to create schedule payment: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=502, detail=f"Bunq schedule payment failed: {e}")
+    logger.info(f"POST /payments/schedule done: id={schedule_payment_id}")
 
     return SchedulePaymentResponse(
         schedule_payment_id=schedule_payment_id,
