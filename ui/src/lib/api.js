@@ -387,12 +387,17 @@ export const documents = {
   backfillHashes: () => request('/documents/duplicates/backfill-hashes', { method: 'POST' }),
 }
 
-// Payments (bunq draft payments)
+// Payments (bunq draft + scheduled payments)
 export const payments = {
   listCounterparties: () => request('/payments/counterparties'),
   createDraft: (data) => request('/payments/draft', { method: 'POST', body: data }),
   getDraft: (draftId, accountId) =>
-    request(`/payments/draft/${draftId}?account_id=${accountId}`)
+    request(`/payments/draft/${draftId}?account_id=${accountId}`),
+  createSchedule: (data) => request('/payments/schedule', { method: 'POST', body: data }),
+  listSchedules: (accountId) =>
+    request(`/payments/schedule?account_id=${accountId}`),
+  deleteSchedule: (scheduleId, accountId) =>
+    request(`/payments/schedule/${scheduleId}?account_id=${accountId}`, { method: 'DELETE' })
 }
 
 // Company Settings

@@ -14,12 +14,15 @@ from bunq.sdk.model.generated.endpoint import (
     DraftPaymentApiObject,
     MonetaryAccountBankApiObject,
     PaymentApiObject,
+    ScheduleApiObject,
+    SchedulePaymentApiObject,
     UserApiObject,
 )
 from bunq.sdk.model.generated.object_ import (
     AmountObject,
     DraftPaymentEntryObject,
     PointerObject,
+    SchedulePaymentEntryObject,
 )
 from fastapi import HTTPException
 
@@ -343,3 +346,69 @@ class BunqClient:
             monetary_account_id=monetary_account_id,
         )
         return json.loads(response.value.to_json())
+
+    def create_schedule_payment(
+        self,
+        monetary_account_id: int,
+        amount_value: str,
+        currency: str,
+        counterparty_iban: str,
+        counterparty_name: str,
+        description: str,
+        time_start: str,
+        recurrence_unit: str,
+        recurrence_size: int,
+        time_end: str | None = None,
+    ) -> int:
+        """Create a scheduled (recurring) payment that auto-executes per the schedule.
+
+        time_start/time_end format: 'YYYY-MM-DD HH:MM:SS.ffffff' (UTC).
+        recurrence_unit: ONCE, HOURLY, DAILY, WEEKLY, MONTHLY, YEARLY.
+        """
+        amount = AmountObject(value=amount_value, currency=currency)
+        counterparty_alias = PointerObject(
+            type_="IBAN",
+            value=counterparty_iban,
+            name=counterparty_name,
+        )
+        payment_entry = SchedulePaymentEntryObject(
+            amount=amount,
+            counterparty_alias=counterparty_alias,
+            description=description,
+        )
+        schedule = ScheduleApiObject(
+            time_start=time_start,
+            recurrence_unit=recurrence_unit,
+            recurrence_size=recurrence_size,
+            time_end=time_end,
+        )
+        logger.info(
+            f"Creating schedule payment: monetary_account_id={monetary_account_id}, "
+            f"amount={amount_value} {currency}, to={counterparty_name} ({counterparty_iban}), "
+            f"start={time_start}, end={time_end}, every {recurrence_size} {recurrence_unit}"
+        )
+        response = SchedulePaymentApiObject.create(
+            payment=payment_entry,
+            schedule=schedule,
+            monetary_account_id=monetary_account_id,
+        )
+        schedule_payment_id = response.value
+        logger.info(f"Schedule payment created with id={schedule_payment_id}")
+        return schedule_payment_id
+
+    def list_schedule_payments(self, monetary_account_id: int) -> list[dict[str, Any]]:
+        """List scheduled payments for an account."""
+        response = SchedulePaymentApiObject.list(monetary_account_id=monetary_account_id)
+        return [json.loads(sp.to_json()) for sp in response.value]
+
+    def delete_schedule_payment(
+        self, monetary_account_id: int, schedule_payment_id: int
+    ) -> None:
+        """Cancel a scheduled payment."""
+        logger.info(
+            f"Deleting schedule payment id={schedule_payment_id} on account {monetary_account_id}"
+        )
+        SchedulePaymentApiObject.delete(
+            schedule_payment_id=schedule_payment_id,
+            monetary_account_id=monetary_account_id,
+        )
