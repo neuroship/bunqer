@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from bunq import ApiEnvironmentType, Pagination
 from bunq.sdk.context.api_context import ApiContext
 from bunq.sdk.context.bunq_context import BunqContext
@@ -28,6 +30,24 @@ from fastapi import HTTPException
 
 from .logger import logger
 from .models import BunqTransaction
+
+# The bunq SDK calls requests.request() with no timeout (see
+# bunq/sdk/http/api_client.py), so a stalled bunq API blocks the worker
+# thread forever. A hung thread cannot be cancelled, so route-level timeouts
+# can't recover it. Inject a default (connect, read) timeout into every
+# requests call so any stall fails fast with a clear exception instead.
+_BUNQ_HTTP_TIMEOUT = (10, 40)
+_orig_session_request = requests.sessions.Session.request
+
+
+def _session_request_with_timeout(self, *args, **kwargs):
+    if kwargs.get("timeout") is None:
+        kwargs["timeout"] = _BUNQ_HTTP_TIMEOUT
+    return _orig_session_request(self, *args, **kwargs)
+
+
+if getattr(requests.sessions.Session.request, "__name__", "") != "_session_request_with_timeout":
+    requests.sessions.Session.request = _session_request_with_timeout
 
 
 class BunqClient:
