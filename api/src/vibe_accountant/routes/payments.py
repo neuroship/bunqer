@@ -87,40 +87,32 @@ def list_counterparties(db: Session = Depends(get_db), limit: int = 200):
 @router.post("/draft", response_model=DraftPaymentResponse)
 def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get_db)):
     """Create a bunq draft payment from a local account. Confirmation happens out-of-band in the bunq app."""
-    account = db.query(Account).filter(Account.id == payload.account_id).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-    if not account.monetary_account_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Account is not linked to a bunq monetary account",
-        )
-
-    integration = (
-        db.query(Integration).filter(Integration.id == account.integration_id).first()
+    logger.info(
+        f"POST /payments/draft: account_id={payload.account_id}, "
+        f"amount={payload.amount} {payload.currency}, to={payload.counterparty_name}"
     )
-    if not integration:
-        raise HTTPException(status_code=400, detail="Account integration not found")
-    if integration.sub_type != "bunq":
-        raise HTTPException(
-            status_code=400, detail="Account is not connected to a bunq integration"
-        )
+
+    account, bunq_client = _get_account_and_client(db, payload.account_id)
 
     iban = payload.counterparty_iban.replace(" ", "").upper()
     amount_str = f"{payload.amount:.2f}"
 
     try:
-        bunq_client = BunqClient(
-            api_key=integration.secret_key,
-            account_key=integration.name,
-        )
-        draft_id = bunq_client.create_draft_payment(
-            monetary_account_id=account.monetary_account_id,
-            amount_value=amount_str,
-            currency=payload.currency,
-            counterparty_iban=iban,
-            counterparty_name=payload.counterparty_name,
-            description=payload.description or "",
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(
+                bunq_client.create_draft_payment,
+                monetary_account_id=account.monetary_account_id,
+                amount_value=amount_str,
+                currency=payload.currency,
+                counterparty_iban=iban,
+                counterparty_name=payload.counterparty_name,
+                description=payload.description or "",
+            )
+            draft_id = future.result(timeout=45)
+    except concurrent.futures.TimeoutError:
+        logger.error("Bunq draft payment call timed out after 45s")
+        raise HTTPException(
+            status_code=504, detail="Bunq draft payment timed out after 45s"
         )
     except HTTPException:
         raise
@@ -130,6 +122,7 @@ def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get
         raise HTTPException(
             status_code=502, detail=f"Bunq draft payment failed: {e}"
         )
+    logger.info(f"POST /payments/draft done: id={draft_id}")
 
     return DraftPaymentResponse(
         draft_payment_id=draft_id,
