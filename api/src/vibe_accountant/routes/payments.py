@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
+from bunq.sdk.exception.api_exception import ApiException
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -19,6 +20,19 @@ from ..models import Account, Integration, Transaction
 RecurrenceUnit = Literal["HOURLY", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"]
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+def _raise_bunq_http_error(e: Exception, action: str) -> None:
+    """Translate a bunq SDK error into an HTTPException with a status the edge
+    won't mask. Cloudflare replaces any origin 5xx with its own error page, so a
+    bunq client error (4xx, e.g. invalid IBAN) returned as 502 hides the real
+    message. Map bunq 4xx -> 400 so the actual reason reaches the user; keep 5xx
+    as 502.
+    """
+    if isinstance(e, ApiException) and 400 <= e.response_code < 500:
+        message = str(e).split("Error message:", 1)[-1].strip() or str(e)
+        raise HTTPException(status_code=400, detail=f"Bunq rejected the {action}: {message}")
+    raise HTTPException(status_code=502, detail=f"Bunq {action} failed: {e}")
 
 
 class DraftPaymentRequest(BaseModel):
@@ -119,9 +133,7 @@ def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get
     except Exception as e:
         logger.error(f"Failed to create draft payment: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=502, detail=f"Bunq draft payment failed: {e}"
-        )
+        _raise_bunq_http_error(e, "draft payment")
     logger.info(f"POST /payments/draft done: id={draft_id}")
 
     return DraftPaymentResponse(
@@ -269,7 +281,7 @@ def create_schedule_payment(payload: SchedulePaymentRequest, db: Session = Depen
     except Exception as e:
         logger.error(f"Failed to create schedule payment: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=502, detail=f"Bunq schedule payment failed: {e}")
+        _raise_bunq_http_error(e, "schedule payment")
     logger.info(f"POST /payments/schedule done: id={schedule_payment_id}")
 
     return SchedulePaymentResponse(
