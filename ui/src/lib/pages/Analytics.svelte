@@ -3,6 +3,7 @@
   import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
   import Card from '../components/Card.svelte'
   import Modal from '../components/Modal.svelte'
+  import CreateRuleModal from '../components/CreateRuleModal.svelte'
   import api from '../api.js'
   import { getPrivacyMode } from '../privacy.svelte.js'
 
@@ -20,6 +21,19 @@
   let selectedCategory = $state(null)
   let categoryTransactions = $state([])
   let loadingTransactions = $state(false)
+  let txnSort = $state({ by: null, order: 'desc' }) // by: null | 'amount'
+  let editingTransactionId = $state(null)
+  let savingTransaction = $state(null)
+  let modalChanged = $state(false)
+  let createRuleModal = $state()
+
+  let sortedTransactions = $derived(
+    txnSort.by === 'amount'
+      ? [...categoryTransactions].sort((a, b) =>
+          txnSort.order === 'asc' ? a.amount - b.amount : b.amount - a.amount
+        )
+      : categoryTransactions
+  )
 
   // Filter state
   const FILTERS_STORAGE_KEY = 'analytics-filters'
@@ -276,32 +290,39 @@
     showTransactionsModal = true
     loadingTransactions = true
     categoryTransactions = []
+    txnSort = { by: null, order: 'desc' }
+    editingTransactionId = null
+    modalChanged = false
 
     try {
       const { start_date, end_date } = getDateRange()
-      const params = {
-        limit: 100
+      const baseParams = {
+        limit: 1000
       }
 
       if (filters.account_id) {
-        params.account_id = filters.account_id
+        baseParams.account_id = filters.account_id
       }
       if (start_date) {
-        params.start_date = start_date
+        baseParams.start_date = start_date
       }
       if (end_date) {
-        params.end_date = end_date
+        baseParams.end_date = end_date
       }
 
       // Handle uncategorized (null category_id)
-      if (category.category_id === null) {
-        params.category_id = 'none'
-      } else {
-        params.category_id = category.category_id
-      }
+      baseParams.category_id = category.category_id === null ? 'none' : category.category_id
 
-      const response = await api.transactions.list(params)
-      categoryTransactions = response.items
+      // Paginate to load all transactions in this category
+      const all = []
+      let offset = 0
+      while (true) {
+        const response = await api.transactions.list({ ...baseParams, offset })
+        all.push(...response.items)
+        if (response.items.length === 0 || all.length >= response.total) break
+        offset += response.items.length
+      }
+      categoryTransactions = all
     } catch (error) {
       console.error('Failed to load transactions:', error)
       window.showToast?.(error.message, 'error')
@@ -310,10 +331,61 @@
     }
   }
 
+  function toggleSortAmount() {
+    if (txnSort.by !== 'amount') {
+      txnSort = { by: 'amount', order: 'desc' }
+    } else {
+      txnSort = { by: 'amount', order: txnSort.order === 'desc' ? 'asc' : 'desc' }
+    }
+  }
+
+  function getCategoryName(categoryId) {
+    if (!categoryId) return null
+    const category = filterOptions.categories?.find(c => c.id === categoryId)
+    return category?.name || null
+  }
+
+  function getCategoryColor(categoryId) {
+    if (!categoryId) return null
+    const category = filterOptions.categories?.find(c => c.id === categoryId)
+    return category?.color || null
+  }
+
+  function startEditingCategory(transaction) {
+    editingTransactionId = transaction.id
+  }
+
+  function cancelEditing() {
+    editingTransactionId = null
+  }
+
+  async function saveCategory(transactionId, categoryId) {
+    savingTransaction = transactionId
+    try {
+      const updated = await api.transactions.update(transactionId, { category_id: categoryId })
+      categoryTransactions = categoryTransactions.map(t =>
+        t.id === transactionId ? { ...t, category_id: updated.category_id } : t
+      )
+      modalChanged = true
+      cancelEditing()
+    } catch (error) {
+      console.error('Failed to update category:', error)
+      window.showToast?.(error.message, 'error')
+    } finally {
+      savingTransaction = null
+    }
+  }
+
   function closeTransactionsModal() {
     showTransactionsModal = false
     selectedCategory = null
     categoryTransactions = []
+    editingTransactionId = null
+    // Refresh chart/breakdown if any category was changed inside the modal
+    if (modalChanged) {
+      modalChanged = false
+      loadStats()
+    }
   }
 </script>
 
@@ -440,11 +512,16 @@
               <th class="text-left py-2 px-3 text-xs text-va-muted font-medium">Category</th>
               <th class="text-right py-2 px-3 text-xs text-va-muted font-medium">Transactions</th>
               <th class="text-right py-2 px-3 text-xs text-va-muted font-medium">Net Amount</th>
+              {#if stats.period_months > 1}
+                <th class="text-right py-2 px-3 text-xs text-va-muted font-medium" title="Average per month over {stats.period_months} months">
+                  Avg/month
+                </th>
+              {/if}
             </tr>
           </thead>
           <tbody>
             {#each [...stats.by_category].sort((a, b) => Math.abs(parseFloat(b.total)) - Math.abs(parseFloat(a.total))) as category}
-              <tr 
+              <tr
                 class="border-b border-va-border/30 hover:bg-va-hover/50 cursor-pointer transition-colors"
                 onclick={() => showCategoryTransactions(category)}
                 title="Click to view transactions"
@@ -452,8 +529,8 @@
                 <td class="py-2 px-3">
                   <div class="flex items-center gap-2">
                     {#if category.category_color}
-                      <span 
-                        class="w-3 h-3 rounded-full" 
+                      <span
+                        class="w-3 h-3 rounded-full"
                         style="background-color: {category.category_color}"
                       ></span>
                     {/if}
@@ -464,6 +541,11 @@
                 <td class="py-2 px-3 text-right text-sm font-medium {parseFloat(category.total) >= 0 ? 'text-va-success' : 'text-va-danger'}">
                   {formatCurrency(parseFloat(category.total))}
                 </td>
+                {#if stats.period_months > 1}
+                  <td class="py-2 px-3 text-right text-sm text-va-muted">
+                    {formatCurrency(parseFloat(category.total) / stats.period_months)}
+                  </td>
+                {/if}
               </tr>
             {/each}
           </tbody>
@@ -475,37 +557,100 @@
 
 <!-- Transactions Modal -->
 <Modal bind:show={showTransactionsModal} title={selectedCategory?.category_name || 'Transactions'} onClose={closeTransactionsModal}>
-  <div class="max-h-[60vh] overflow-auto">
-    {#if loadingTransactions}
-      <div class="flex items-center justify-center py-8">
-        <div class="w-5 h-5 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    {:else if categoryTransactions.length === 0}
-      <p class="text-sm text-va-muted text-center py-4">No transactions found</p>
-    {:else}
+  {#if loadingTransactions}
+    <div class="flex items-center justify-center py-8">
+      <div class="w-5 h-5 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  {:else if categoryTransactions.length === 0}
+    <p class="text-sm text-va-muted text-center py-4">No transactions found</p>
+  {:else}
+    <!-- Sort bar -->
+    <div class="flex items-center justify-between mb-2 px-1">
+      <span class="text-xs text-va-muted">{sortedTransactions.length} transactions</span>
+      <button
+        onclick={toggleSortAmount}
+        class="inline-flex items-center gap-1 text-xs transition-colors {txnSort.by === 'amount' ? 'text-va-accent' : 'text-va-muted hover:text-va-text'}"
+      >
+        Sort by amount
+        {#if txnSort.by === 'amount'}
+          <svg class="w-3 h-3 transition-transform {txnSort.order === 'asc' ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        {:else}
+          <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+          </svg>
+        {/if}
+      </button>
+    </div>
+
+    <div class="max-h-[60vh] overflow-auto">
       <div class="space-y-2">
-        {#each categoryTransactions as txn}
-          <div class="flex items-center justify-between p-3 rounded-lg bg-va-hover/30 border border-va-border/50">
+        {#each sortedTransactions as txn}
+          <div class="flex items-center justify-between gap-3 p-3 rounded-lg bg-va-hover/30 border border-va-border/50">
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-va-muted">{formatDate(txn.transaction_date)}</span>
-              </div>
+              <span class="text-xs text-va-muted">{formatDate(txn.transaction_date)}</span>
               <p class="text-sm text-va-text truncate mt-1" class:privacy-blur={privacyOn}>{txn.counterparty_name || 'Unknown'}</p>
               {#if txn.description}
                 <p class="text-xs text-va-muted truncate mt-0.5">{txn.description}</p>
               {/if}
             </div>
-            <div class="text-right ml-4">
-              <p class="text-sm font-medium {txn.amount >= 0 ? 'text-va-success' : 'text-va-danger'}">
+            <div class="flex items-center gap-2 shrink-0">
+              <!-- Category (inline edit) -->
+              {#if editingTransactionId === txn.id}
+                <select
+                  class="text-xs px-2 py-1 rounded-md border border-va-accent bg-va-canvas text-va-text focus:outline-none focus:ring-1 focus:ring-va-accent"
+                  value={txn.category_id || ''}
+                  onchange={(e) => saveCategory(txn.id, e.target.value ? parseInt(e.target.value) : null)}
+                  onblur={cancelEditing}
+                  disabled={savingTransaction === txn.id}
+                >
+                  <option value="">-- Remove category --</option>
+                  {#each filterOptions.categories || [] as category}
+                    <option value={category.id}>{category.name}</option>
+                  {/each}
+                </select>
+              {:else}
+                <button
+                  onclick={() => startEditingCategory(txn)}
+                  class="text-left hover:bg-va-hover/50 rounded px-1 transition-colors"
+                  title="Click to edit category"
+                >
+                  {#if getCategoryName(txn.category_id)}
+                    <span
+                      class="text-xs px-2 py-1 rounded-md border inline-block whitespace-nowrap"
+                      style={getCategoryColor(txn.category_id) ? `background-color: ${getCategoryColor(txn.category_id)}20; border-color: ${getCategoryColor(txn.category_id)}40; color: ${getCategoryColor(txn.category_id)}` : ''}
+                      class:bg-va-hover={!getCategoryColor(txn.category_id)}
+                      class:border-va-border={!getCategoryColor(txn.category_id)}
+                      class:text-va-muted={!getCategoryColor(txn.category_id)}
+                    >
+                      {getCategoryName(txn.category_id)}
+                    </span>
+                  {:else}
+                    <span class="text-xs text-va-muted/50 hover:text-va-muted">+ Add</span>
+                  {/if}
+                </button>
+              {/if}
+
+              <p class="text-sm font-medium w-24 text-right {txn.amount >= 0 ? 'text-va-success' : 'text-va-danger'}">
                 {formatCurrency(txn.amount)}
               </p>
+
+              <button
+                onclick={() => createRuleModal.open(txn)}
+                class="p-1.5 text-va-muted hover:text-va-accent hover:bg-va-hover rounded-md transition-all"
+                title="Create rule from this transaction"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </button>
             </div>
           </div>
         {/each}
       </div>
-      {#if categoryTransactions.length >= 100}
-        <p class="text-xs text-va-muted text-center mt-4">Showing first 100 transactions</p>
-      {/if}
-    {/if}
-  </div>
+    </div>
+  {/if}
 </Modal>
+
+<CreateRuleModal bind:this={createRuleModal} categories={filterOptions.categories || []} />

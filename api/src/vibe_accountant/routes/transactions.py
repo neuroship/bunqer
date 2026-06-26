@@ -293,6 +293,16 @@ async def get_transaction_stats(
     # Calculate stats
     total_count = q.count()
 
+    # Number of calendar months spanned by the filtered data (inclusive)
+    date_range = q.with_entities(
+        func.min(Transaction.transaction_date), func.max(Transaction.transaction_date)
+    ).first()
+    min_date, max_date = (date_range or (None, None))
+    if min_date and max_date:
+        period_months = (max_date.year - min_date.year) * 12 + (max_date.month - min_date.month) + 1
+    else:
+        period_months = 0
+
     income = (
         q.filter(Transaction.amount > 0).with_entities(func.sum(Transaction.amount)).scalar()
         or Decimal("0")
@@ -337,6 +347,7 @@ async def get_transaction_stats(
         "total_income": str(income),
         "total_expenses": str(abs(expenses)),
         "net_balance": str(income + expenses),
+        "period_months": period_months,
         "by_category": by_category,
     }
 
