@@ -468,13 +468,27 @@
   <!-- Summary Card -->
   {#if stats}
     <Card class="mb-4">
-      <div class="text-center">
-        <p class="text-xs text-va-muted mb-1">Net Balance</p>
-        <p class="text-2xl font-semibold {parseFloat(stats.net_balance) >= 0 ? 'text-va-success' : 'text-va-danger'}" class:privacy-blur={privacyOn}>
-          {formatCurrency(parseFloat(stats.net_balance))}
-        </p>
-        <p class="text-xs text-va-muted mt-2">{stats.total_count} transactions</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-va-border">
+        <div class="text-center pt-3 sm:pt-0 first:pt-0">
+          <p class="text-xs text-va-muted mb-1">Net In</p>
+          <p class="text-2xl font-semibold text-va-success" class:privacy-blur={privacyOn}>
+            {formatCurrency(parseFloat(stats.total_income))}
+          </p>
+        </div>
+        <div class="text-center pt-3 sm:pt-0">
+          <p class="text-xs text-va-muted mb-1">Net Out</p>
+          <p class="text-2xl font-semibold text-va-danger" class:privacy-blur={privacyOn}>
+            {formatCurrency(-parseFloat(stats.total_expenses))}
+          </p>
+        </div>
+        <div class="text-center pt-3 sm:pt-0">
+          <p class="text-xs text-va-muted mb-1">Net Balance</p>
+          <p class="text-2xl font-semibold {parseFloat(stats.net_balance) >= 0 ? 'text-va-success' : 'text-va-danger'}" class:privacy-blur={privacyOn}>
+            {formatCurrency(parseFloat(stats.net_balance))}
+          </p>
+        </div>
       </div>
+      <p class="text-xs text-va-muted mt-3 text-center">{stats.total_count} transactions</p>
     </Card>
   {/if}
 
