@@ -127,7 +127,7 @@
   }
 
   async function cancelSchedule(id) {
-    if (!form.account_id) return
+    if (id == null || !form.account_id) return
     cancellingId = id
     try {
       await api.payments.deleteSchedule(id, Number(form.account_id))

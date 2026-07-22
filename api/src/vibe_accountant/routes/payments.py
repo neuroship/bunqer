@@ -316,7 +316,9 @@ def list_schedule_payments(account_id: int, db: Session = Depends(get_db)):
         schedule = sp.get("schedule") or {}
         amount = payment.get("amount") or {}
         counterparty = payment.get("counterparty_alias") or {}
-        cp_label = counterparty.get("label_monetary_account") or {}
+        # raw bunq JSON returns the LabelMonetaryAccount directly; the SDK
+        # to_json shape nested it under label_monetary_account
+        cp_label = counterparty.get("label_monetary_account") or counterparty
         out.append({
             "id": sp.get("id"),
             "status": sp.get("status"),

@@ -12,6 +12,7 @@ import requests
 from bunq import ApiEnvironmentType, Pagination
 from bunq.sdk.context.api_context import ApiContext
 from bunq.sdk.context.bunq_context import BunqContext
+from bunq.sdk.http.api_client import ApiClient as BunqApiClient
 from bunq.sdk.model.generated.endpoint import (
     DraftPaymentApiObject,
     MonetaryAccountBankApiObject,
@@ -417,9 +418,23 @@ class BunqClient:
         return schedule_payment_id
 
     def list_schedule_payments(self, monetary_account_id: int) -> list[dict[str, Any]]:
-        """List scheduled payments for an account."""
-        response = SchedulePaymentApiObject.list(monetary_account_id=monetary_account_id)
-        return [json.loads(sp.to_json()) for sp in response.value]
+        """List scheduled payments for an account.
+
+        Uses a raw API call because the SDK's SchedulePaymentApiObject has no
+        id field, so to_json() drops the id needed to cancel a schedule.
+        """
+        api_client = BunqApiClient(SchedulePaymentApiObject._get_api_context())
+        endpoint_url = SchedulePaymentApiObject._ENDPOINT_URL_LISTING.format(
+            SchedulePaymentApiObject._determine_user_id(),
+            SchedulePaymentApiObject._determine_monetary_account_id(monetary_account_id),
+        )
+        response_raw = api_client.get(endpoint_url, {}, {})
+        body = json.loads(response_raw.body_bytes.decode())
+        return [
+            item["ScheduledPayment"]
+            for item in body.get("Response", [])
+            if "ScheduledPayment" in item
+        ]
 
     def delete_schedule_payment(
         self, monetary_account_id: int, schedule_payment_id: int
