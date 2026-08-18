@@ -105,17 +105,11 @@ tasks:
     cmds:
       - docker compose up -d
 
-  auth:hash-password:
-    desc: Generate bcrypt hash for AUTH_PASSWORD_HASH
+  auth:enrollment-token:
+    desc: Generate a random PASSKEY_ENROLLMENT_TOKEN
     dir: "{{.API_DIR}}"
     cmds:
-      - |
-        uv run python -c "
-        import getpass
-        from src.vibe_accountant.auth import generate_password_hash
-        p = getpass.getpass('Password: ')
-        print(generate_password_hash(p))
-        "
+      - uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 
   lint:
     desc: Run linters

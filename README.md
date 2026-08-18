@@ -20,7 +20,7 @@ bunqer connects to your [bunq](https://www.bunq.com) bank account and gives you 
 - **Auto-categorization** — define rule-based conditions to automatically categorize incoming transactions
 - **Invoicing** — create invoices, manage clients, generate PDFs, and track payment status
 - **Analytics** — visualize your financial data with interactive charts
-- **Passkey authentication** — passwordless login via WebAuthn/FIDO2 alongside traditional auth
+- **Passkey authentication** — passwordless login via WebAuthn/FIDO2; passkeys are the only credential
 - **Company settings** — upload your logo and customize invoice details
 - **Rule import/export** — back up and share categorization rules as JSON
 - **Document processing** — upload invoices and tax letters; automatic OCR and AI-powered structured data extraction
@@ -63,8 +63,9 @@ cd bunqer
 # 2. Copy environment config
 cp .env.example .env
 
-# 3. Generate a password hash and add it to .env
-task auth:hash-password
+# 3. Generate an enrollment token and add it to .env as PASSKEY_ENROLLMENT_TOKEN
+#    (used once to register your first passkey)
+task auth:enrollment-token
 
 # 4. Add your bunq API key to .env
 #    Get it from the bunq app: Profile → Security → API keys
@@ -101,9 +102,9 @@ BUNQ_ENVIRONMENT=PRODUCTION
 # Frontend
 VITE_API_URL=http://localhost:8000
 
-# Authentication
+# Authentication (passkey only)
 AUTH_USERNAME=admin
-AUTH_PASSWORD_HASH=your-bcrypt-hash-here
+PASSKEY_ENROLLMENT_TOKEN=your-enrollment-token-here
 
 # Document Processing (Mistral AI)
 MISTRAL_API_KEY=your-mistral-api-key-here
@@ -131,7 +132,7 @@ task dev:ui             # Run UI dev server
 task build              # Build UI for production
 task lint               # Run linters
 task infra:up           # Start PostgreSQL via Docker
-task auth:hash-password # Generate a bcrypt password hash
+task auth:enrollment-token # Generate a passkey enrollment token
 ```
 
 ### Database
@@ -184,7 +185,7 @@ bunqer/
 │   ├── src/vibe_accountant/
 │   │   ├── main.py             # App entry, middleware, routes
 │   │   ├── config.py           # Settings from environment
-│   │   ├── auth.py             # JWT + password auth
+│   │   ├── auth.py             # JWT issuing + verification
 │   │   ├── bunq_client.py      # bunq API integration
 │   │   ├── models/             # SQLAlchemy models + Pydantic schemas
 │   │   ├── routes/             # API endpoints
@@ -229,7 +230,7 @@ Before running bunqer in production, review the following checklist:
 **Secrets & credentials**
 
 - Set `JWT_SECRET_KEY` explicitly in `.env` — do not rely on the auto-generated default, as it changes on every restart and invalidates all active sessions.
-- Use a strong, unique `AUTH_PASSWORD_HASH`. Generate it with `task auth:hash-password`.
+- Generate `PASSKEY_ENROLLMENT_TOKEN` with `task auth:enrollment-token`. It only works while no passkey is registered; clear it from the environment once your first passkey is enrolled, and set it again if you ever need to recover.
 - Never commit `.env` to version control. The `.gitignore` already excludes it.
 - Change the default PostgreSQL password in `docker-compose.yml` (default is `postgres`).
 
@@ -250,7 +251,7 @@ Before running bunqer in production, review the following checklist:
 
 **Rate limiting**
 
-- Add rate limiting on `/auth/login` and `/auth/hash-password` to prevent brute-force attacks. This can be done at the reverse proxy level (e.g., nginx `limit_req`) or with a FastAPI middleware.
+- Add rate limiting on `/auth/passkeys/login` and `/auth/passkeys/register` to prevent brute-force attacks. This can be done at the reverse proxy level (e.g., nginx `limit_req`) or with a FastAPI middleware.
 
 **Security headers**
 

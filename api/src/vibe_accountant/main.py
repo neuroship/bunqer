@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from .auth import get_current_user
 from .config import settings
 from .logger import logger
-from .routes import auth, categories, documents, events, health, integrations, invoices, passkeys, payments, settings as settings_routes, setup, transactions
+from .routes import categories, documents, events, health, integrations, invoices, passkeys, payments, settings as settings_routes, setup, transactions
 
 
 def run_migrations():
@@ -66,7 +66,6 @@ auth_dependency = [Depends(get_current_user)]
 
 # Include public routers (no auth required)
 app.include_router(health.router)
-app.include_router(auth.router)
 app.include_router(events.router)  # SSE handles auth via query param (EventSource limitation)
 app.include_router(passkeys.router)  # Mixed auth: login endpoints public, management endpoints use Depends
 

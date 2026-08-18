@@ -24,7 +24,6 @@ class Settings(BaseSettings):
 
     # Authentication
     auth_username: str = "admin"
-    auth_password_hash: str | None = None  # bcrypt hash of password
     jwt_secret_key: str = secrets.token_urlsafe(32)  # Auto-generate if not set
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
@@ -33,6 +32,8 @@ class Settings(BaseSettings):
     webauthn_rp_id: str = "localhost"  # Relying party ID (domain name)
     webauthn_rp_name: str = "Vibe Accountant"
     webauthn_origin: str = "http://localhost:5173"  # Expected origin for verification
+    # One-time token that unlocks passkey enrollment while no passkey is registered
+    passkey_enrollment_token: str | None = None
 
     # AWS S3
     aws_access_key_id: str | None = None

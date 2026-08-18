@@ -63,14 +63,15 @@ async function request(endpoint, options = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
-  const { timeoutMs: _ignore, ...rest } = options
+  // publicAuth: login/enrollment calls — a 401 is a failed attempt, not an expired session
+  const { timeoutMs: _ignore, publicAuth = false, ...rest } = options
   const config = {
+    ...rest,
     headers: {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
       ...rest.headers
     },
-    ...rest,
     signal: rest.signal ?? controller.signal
   }
 
@@ -91,7 +92,7 @@ async function request(endpoint, options = {}) {
   clearTimeout(timer)
 
   // Handle unauthorized responses
-  if (response.status === 401) {
+  if (response.status === 401 && !publicAuth) {
     clearAuth()
     if (onUnauthorizedCallback) {
       onUnauthorizedCallback()
@@ -109,17 +110,6 @@ async function request(endpoint, options = {}) {
 
 // Auth
 export const auth = {
-  login: async (username, password) => {
-    const response = await request('/auth/login', {
-      method: 'POST',
-      body: { username, password }
-    })
-    // If MFA required, don't store token yet — caller handles MFA step
-    if (!response.mfa_required) {
-      setAuth(response.access_token, response.username)
-    }
-    return response
-  },
   logout: () => {
     clearAuth()
   }
@@ -146,16 +136,24 @@ export const passkeys = {
   /** Check if WebAuthn is supported by this browser */
   isSupported: () => !!window.PublicKeyCredential,
 
+  /** Public: whether any passkey is registered and whether enrollment is open */
+  status: () => request('/auth/passkeys/status', { publicAuth: true }),
+
   /** List registered passkeys (requires auth) */
   list: () => request('/auth/passkeys'),
 
   /** Delete a passkey (requires auth) */
   delete: (id) => request(`/auth/passkeys/${id}`, { method: 'DELETE' }),
 
-  /** Register a new passkey (requires auth) */
-  register: async (name) => {
+  /** Register a new passkey (requires auth, or an enrollment token when none exist yet) */
+  register: async (name, enrollmentToken) => {
+    const headers = enrollmentToken ? { 'X-Enrollment-Token': enrollmentToken } : undefined
+
     // 1. Get options from server
-    const options = await request('/auth/passkeys/register-options')
+    const options = await request('/auth/passkeys/register-options', {
+      headers,
+      publicAuth: !!enrollmentToken,
+    })
 
     // 2. Convert to browser-friendly format
     const publicKey = {
@@ -182,6 +180,8 @@ export const passkeys = {
     // 4. Send to server for verification
     const result = await request('/auth/passkeys/register', {
       method: 'POST',
+      headers,
+      publicAuth: !!enrollmentToken,
       body: {
         id: credential.id,
         rawId: bufferToBase64url(credential.rawId),
@@ -196,10 +196,10 @@ export const passkeys = {
     return result
   },
 
-  /** Complete MFA step after password login (uses mfa_token) */
-  verifyMfa: async (mfaToken) => {
-    // 1. Get MFA challenge options from server
-    const options = await request(`/auth/passkeys/mfa-options?mfa_token=${encodeURIComponent(mfaToken)}`)
+  /** Sign in with a passkey */
+  login: async () => {
+    // 1. Get login challenge options from server
+    const options = await request('/auth/passkeys/login-options', { publicAuth: true })
 
     // 2. Convert to browser-friendly format
     const publicKey = {
@@ -216,11 +216,11 @@ export const passkeys = {
     // 3. Get assertion via browser API
     const assertion = await navigator.credentials.get({ publicKey })
 
-    // 4. Send assertion + mfa_token to server for verification
-    const response = await request('/auth/passkeys/verify-mfa', {
+    // 4. Send assertion to server for verification
+    const response = await request('/auth/passkeys/login', {
       method: 'POST',
+      publicAuth: true,
       body: {
-        mfa_token: mfaToken,
         id: assertion.id,
         rawId: bufferToBase64url(assertion.rawId),
         type: assertion.type,

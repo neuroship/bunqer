@@ -1,9 +1,11 @@
 """Passkey (WebAuthn) authentication routes."""
 
+import secrets
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from webauthn import (
@@ -20,7 +22,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from ..auth import create_access_token, get_current_user, verify_mfa_token
+from ..auth import create_access_token, get_current_user, security, verify_token
 from ..config import settings
 from ..database import get_db
 from ..logger import logger
@@ -47,7 +49,60 @@ def _pop_challenge(key: str) -> bytes | None:
     return challenge
 
 
-# ── Registration (requires existing auth) ────────────────────────────
+# ── Registration (signed-in user, or enrollment token when no passkey exists) ──
+
+
+async def require_registration_access(
+    x_enrollment_token: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: Session = Depends(get_db),
+) -> str:
+    """
+    Allow passkey registration for a signed-in user.
+
+    When no passkey is registered yet (fresh install or lost-all-devices recovery),
+    accept the PASSKEY_ENROLLMENT_TOKEN instead so the first passkey can be enrolled.
+    """
+    if credentials is not None:
+        username = verify_token(credentials.credentials)
+        if username is not None:
+            return username
+
+    if db.query(WebAuthnCredential).count() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not settings.passkey_enrollment_token:
+        logger.error("Enrollment attempted but PASSKEY_ENROLLMENT_TOKEN is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No passkeys registered and PASSKEY_ENROLLMENT_TOKEN is not configured.",
+        )
+
+    if not x_enrollment_token or not secrets.compare_digest(
+        x_enrollment_token, settings.passkey_enrollment_token
+    ):
+        logger.warning("Passkey enrollment rejected: invalid enrollment token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid enrollment token",
+        )
+
+    logger.info("Passkey enrollment authorized via enrollment token")
+    return settings.auth_username
+
+
+@router.get("/status")
+async def passkey_status(db: Session = Depends(get_db)):
+    """Public: whether any passkey is registered, and whether enrollment is open."""
+    count = db.query(WebAuthnCredential).count()
+    return {
+        "registered": count > 0,
+        "enrollment_available": count == 0 and bool(settings.passkey_enrollment_token),
+    }
 
 
 class RegisterPasskeyRequest(BaseModel):
@@ -61,7 +116,7 @@ class RegisterPasskeyRequest(BaseModel):
 
 @router.get("/register-options")
 async def register_options(
-    username: str = Depends(get_current_user),
+    username: str = Depends(require_registration_access),
     db: Session = Depends(get_db),
 ):
     """Generate registration options for a new passkey."""
@@ -125,7 +180,7 @@ async def register_options(
 @router.post("/register")
 async def register_passkey(
     body: RegisterPasskeyRequest,
-    username: str = Depends(get_current_user),
+    username: str = Depends(require_registration_access),
     db: Session = Depends(get_db),
 ):
     """Verify and store a new passkey registration."""
@@ -164,19 +219,12 @@ async def register_passkey(
     return WebAuthnCredentialResponse.model_validate(credential)
 
 
-# ── MFA verification (public — requires mfa_token from password login) ───
+# ── Login (public — passkey is the only credential) ─────────────────
 
 
-@router.get("/mfa-options")
-async def mfa_options(mfa_token: str, db: Session = Depends(get_db)):
-    """Generate authentication options for MFA passkey verification."""
-    username = verify_mfa_token(mfa_token)
-    if username is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA token expired or invalid. Please log in again.",
-        )
-
+@router.get("/login-options")
+async def login_options(db: Session = Depends(get_db)):
+    """Generate authentication options for passkey login."""
     credentials = db.query(WebAuthnCredential).all()
     if not credentials:
         raise HTTPException(
@@ -195,7 +243,7 @@ async def mfa_options(mfa_token: str, db: Session = Depends(get_db)):
         user_verification=UserVerificationRequirement.PREFERRED,
     )
 
-    _store_challenge("mfa", options.challenge)
+    _store_challenge("login", options.challenge)
 
     return {
         "challenge": urlsafe_b64encode(options.challenge).decode().rstrip("="),
@@ -214,41 +262,32 @@ async def mfa_options(mfa_token: str, db: Session = Depends(get_db)):
     }
 
 
-class VerifyMfaRequest(BaseModel):
-    """MFA verification request: passkey assertion + mfa_token."""
-    mfa_token: str
+class PasskeyLoginRequest(BaseModel):
+    """Login request: passkey assertion."""
     id: str
     rawId: str
     type: str
     response: dict
 
 
-class MfaLoginResponse(BaseModel):
-    """Login response after successful MFA."""
+class PasskeyLoginResponse(BaseModel):
+    """Login response after successful passkey verification."""
     access_token: str
     token_type: str = "bearer"
     username: str
 
 
-@router.post("/verify-mfa", response_model=MfaLoginResponse)
-async def verify_mfa(
-    body: VerifyMfaRequest,
+@router.post("/login", response_model=PasskeyLoginResponse)
+async def passkey_login(
+    body: PasskeyLoginRequest,
     db: Session = Depends(get_db),
 ):
-    """Verify passkey assertion as MFA step and return full JWT token."""
-    # Validate the MFA token (proves password was already verified)
-    username = verify_mfa_token(body.mfa_token)
-    if username is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA token expired or invalid. Please log in again.",
-        )
-
-    challenge = _pop_challenge("mfa")
+    """Verify a passkey assertion and return a JWT token."""
+    challenge = _pop_challenge("login")
     if challenge is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA challenge expired or missing. Please try again.",
+            detail="Login challenge expired or missing. Please try again.",
         )
 
     # Find the credential by ID
@@ -279,7 +318,7 @@ async def verify_mfa(
             credential_current_sign_count=credential.sign_count,
         )
     except Exception as e:
-        logger.error(f"MFA passkey verification failed: {e}")
+        logger.error(f"Passkey login verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Passkey verification failed",
@@ -289,10 +328,11 @@ async def verify_mfa(
     credential.sign_count = verification.new_sign_count
     db.commit()
 
+    username = settings.auth_username
     access_token = create_access_token(username)
-    logger.info(f"MFA verification successful for '{username}'")
+    logger.info(f"Passkey login successful for '{username}' via '{credential.name}'")
 
-    return MfaLoginResponse(
+    return PasskeyLoginResponse(
         access_token=access_token,
         username=username,
     )
@@ -324,6 +364,14 @@ async def delete_passkey(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Passkey not found",
         )
+
+    # Passkeys are the only credential — deleting the last one locks the account out
+    if db.query(WebAuthnCredential).count() == 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your only passkey. Register another one first.",
+        )
+
     db.delete(credential)
     db.commit()
     logger.info(f"Passkey '{credential.name}' (id={passkey_id}) deleted by '{username}'")
