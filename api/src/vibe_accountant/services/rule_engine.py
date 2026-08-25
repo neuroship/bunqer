@@ -117,8 +117,8 @@ def apply_rules_to_transaction(transaction: Transaction, rules: list[CategoryRul
     Rules are evaluated in order (sorted by priority).
     Returns the category_id of the first matching rule, or None if no match.
     """
-    # Sort rules by priority (lower = higher priority)
-    sorted_rules = sorted(rules, key=lambda r: r.priority)
+    # Sort rules by priority (lower = higher priority), id as a stable tie-break
+    sorted_rules = sorted(rules, key=lambda r: (r.priority, r.id))
     
     for rule in sorted_rules:
         if not rule.is_active:
