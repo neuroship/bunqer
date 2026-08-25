@@ -353,11 +353,14 @@ async def get_transaction_stats(
 
 
 @router.post("/apply-rules")
-async def apply_categorization_rules(db: Session = Depends(get_db)):
-    """Apply all active categorization rules to uncategorized transactions."""
+async def apply_categorization_rules(force: bool = False, db: Session = Depends(get_db)):
+    """Apply all active categorization rules to uncategorized transactions.
+
+    With force=true, re-evaluate every transaction and overwrite existing categories.
+    """
     from ..services import apply_rules_to_uncategorized
 
-    result = apply_rules_to_uncategorized(db)
+    result = apply_rules_to_uncategorized(db, force=force)
     return result
 
 

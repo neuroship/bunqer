@@ -130,9 +130,12 @@ def apply_rules_to_transaction(transaction: Transaction, rules: list[CategoryRul
     return None
 
 
-def apply_rules_to_uncategorized(db: Session) -> dict:
+def apply_rules_to_uncategorized(db: Session, force: bool = False) -> dict:
     """
     Apply all active rules to uncategorized transactions.
+    
+    When force is True, all transactions are re-evaluated and a matching rule
+    overwrites the existing category (including manually set ones).
     
     Returns a dict with stats: {categorized: int, total_uncategorized: int}
     """
@@ -142,29 +145,33 @@ def apply_rules_to_uncategorized(db: Session) -> dict:
     if not rules:
         return {"categorized": 0, "total_uncategorized": 0, "message": "No active rules"}
     
-    # Get all uncategorized transactions
-    uncategorized = db.query(Transaction).options(joinedload(Transaction.account)).filter(Transaction.category_id.is_(None)).all()
-    total_uncategorized = len(uncategorized)
+    # Get the transactions to evaluate
+    query = db.query(Transaction).options(joinedload(Transaction.account))
+    if not force:
+        query = query.filter(Transaction.category_id.is_(None))
+    candidates = query.all()
+    total_candidates = len(candidates)
     
-    if total_uncategorized == 0:
-        return {"categorized": 0, "total_uncategorized": 0, "message": "No uncategorized transactions"}
+    if total_candidates == 0:
+        return {"categorized": 0, "total_uncategorized": 0, "message": "No transactions to categorize"}
     
     categorized_count = 0
     
-    for transaction in uncategorized:
+    for transaction in candidates:
         category_id = apply_rules_to_transaction(transaction, rules)
-        if category_id is not None:
+        if category_id is not None and category_id != transaction.category_id:
             transaction.category_id = category_id
             categorized_count += 1
     
     if categorized_count > 0:
         db.commit()
-        logger.info(f"Auto-categorized {categorized_count} of {total_uncategorized} uncategorized transactions")
+        logger.info(f"Auto-categorized {categorized_count} of {total_candidates} transactions (force={force})")
     
+    verb = "Re-categorized" if force else "Categorized"
     return {
         "categorized": categorized_count,
-        "total_uncategorized": total_uncategorized,
-        "message": f"Categorized {categorized_count} of {total_uncategorized} transactions",
+        "total_uncategorized": total_candidates,
+        "message": f"{verb} {categorized_count} of {total_candidates} transactions",
     }
 
 

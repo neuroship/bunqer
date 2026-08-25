@@ -283,7 +283,7 @@ export const transactions = {
     const query = new URLSearchParams(params).toString()
     return request(`/transactions/stats${query ? `?${query}` : ''}`)
   },
-  applyRules: () => request('/transactions/apply-rules', { method: 'POST' }),
+  applyRules: (force = false) => request(`/transactions/apply-rules${force ? '?force=true' : ''}`, { method: 'POST' }),
   matchDocuments: () => request('/transactions/match-documents', { method: 'POST' }),
   matchSuggestions: () => request('/transactions/match-suggestions')
 }

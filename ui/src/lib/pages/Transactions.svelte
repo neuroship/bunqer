@@ -88,6 +88,7 @@
 
   // Apply rules state
   let applyingRules = $state(false)
+  let forceRules = $state(false)
 
   // Match documents state
   let matchingDocs = $state(false)
@@ -428,7 +429,7 @@
   async function applyRules() {
     applyingRules = true
     try {
-      const result = await api.transactions.applyRules()
+      const result = await api.transactions.applyRules(forceRules)
       if (result.categorized > 0) {
         window.showToast?.(result.message, 'success')
         // Reload transactions to show updated categories
@@ -589,11 +590,18 @@
           </svg>
         {/if}
       </button>
+      <label
+        class="text-xs flex items-center gap-1.5 text-va-muted hover:text-va-text cursor-pointer select-none"
+        title="Re-evaluate every transaction and overwrite existing categories, including ones set by hand"
+      >
+        <input type="checkbox" bind:checked={forceRules} class="accent-va-muted w-3.5 h-3.5" />
+        Overwrite
+      </label>
       <button 
         onclick={applyRules}
         disabled={applyingRules}
         class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        title="Apply categorization rules to uncategorized transactions"
+        title={forceRules ? 'Re-apply rules to ALL transactions, overwriting existing categories' : 'Apply categorization rules to uncategorized transactions'}
       >
         {#if applyingRules}
           <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
@@ -602,7 +610,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
         {/if}
-        Apply Rules
+        {forceRules ? 'Re-apply Rules' : 'Apply Rules'}
       </button>
       <button
         onclick={matchDocuments}
