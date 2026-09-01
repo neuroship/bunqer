@@ -16,7 +16,7 @@
   let schedules = $state([])
   let schedulesLoading = $state(false)
   let cancellingId = $state(null)
-  let pendingDrafts = $state([])
+  let pendingApprovals = $state([])
   let pendingLoading = $state(false)
   let actingId = $state(null)
 
@@ -74,13 +74,13 @@
     accounts.find(a => String(a.id) === String(form.account_id))
   )
 
-  function handleDraftsUpdated(e) {
-    pendingDrafts = e.detail || []
+  function handleApprovalsUpdated(e) {
+    pendingApprovals = e.detail || []
   }
 
   onMount(async () => {
-    window.addEventListener('drafts-updated', handleDraftsUpdated)
-    loadPendingDrafts(true)
+    window.addEventListener('approvals-updated', handleApprovalsUpdated)
+    loadPendingApprovals(true)
     try {
       const [accs, cps] = await Promise.all([
         api.setup.listAccounts(),
@@ -101,36 +101,54 @@
   })
 
   onDestroy(() => {
-    window.removeEventListener('drafts-updated', handleDraftsUpdated)
+    window.removeEventListener('approvals-updated', handleApprovalsUpdated)
   })
 
-  async function loadPendingDrafts(refresh = false) {
+  async function loadPendingApprovals(refresh = false) {
     pendingLoading = true
     try {
-      pendingDrafts = await api.payments.listPendingDrafts(refresh)
+      pendingApprovals = await api.payments.listPendingApprovals(refresh)
     } catch (e) {
-      console.error('Failed to load pending drafts:', e)
-      window.showToast?.(e.message || 'Failed to load pending drafts', 'error')
+      console.error('Failed to load pending approvals:', e)
+      window.showToast?.(e.message || 'Failed to load pending approvals', 'error')
     } finally {
       pendingLoading = false
     }
   }
 
-  function draftLabel(d) {
-    return `${d.amount} ${d.currency} to ${d.counterparty_name || d.counterparty_iban}`
+  function itemKey(item) {
+    return `${item.kind}:${item.id}`
   }
 
-  async function approveDraft(d) {
-    actingId = d.id
+  function itemLabel(item) {
+    return `${item.amount} ${item.currency} to ${item.counterparty_name || item.counterparty_iban}`
+  }
+
+  function itemKindLabel(item) {
+    if (item.kind === 'draft') return 'Draft payment'
+    const type = (item.request_type || '').toLowerCase().replace(/_/g, ' ')
+    return type && type !== 'internal' ? `Request (${type})` : 'Request'
+  }
+
+  function removeItem(item) {
+    pendingApprovals = pendingApprovals.filter(p => itemKey(p) !== itemKey(item))
+  }
+
+  async function approveItem(item) {
+    actingId = itemKey(item)
     try {
       const passkey = await api.passkeys.verify()
-      await api.payments.approveDraft(d.id, {
-        account_id: d.account_id,
-        previous_updated_timestamp: d.updated,
-        passkey
-      })
-      window.showToast?.(`Approved ${draftLabel(d)}.`, 'success')
-      pendingDrafts = pendingDrafts.filter(p => p.id !== d.id)
+      if (item.kind === 'draft') {
+        await api.payments.approveDraft(item.id, {
+          account_id: item.account_id,
+          previous_updated_timestamp: item.updated,
+          passkey
+        })
+      } else {
+        await api.payments.approveRequest(item.id, { account_id: item.account_id, passkey })
+      }
+      window.showToast?.(`Approved ${itemLabel(item)}.`, 'success')
+      removeItem(item)
     } catch (e) {
       if (e.name === 'NotAllowedError') {
         window.showToast?.('Passkey verification was cancelled.', 'warning')
@@ -142,16 +160,20 @@
     }
   }
 
-  async function rejectDraft(d) {
-    if (!confirm(`Reject draft payment of ${draftLabel(d)}?`)) return
-    actingId = d.id
+  async function rejectItem(item) {
+    if (!confirm(`Reject ${itemKindLabel(item).toLowerCase()} of ${itemLabel(item)}?`)) return
+    actingId = itemKey(item)
     try {
-      await api.payments.rejectDraft(d.id, {
-        account_id: d.account_id,
-        previous_updated_timestamp: d.updated
-      })
-      window.showToast?.(`Rejected ${draftLabel(d)}.`, 'success')
-      pendingDrafts = pendingDrafts.filter(p => p.id !== d.id)
+      if (item.kind === 'draft') {
+        await api.payments.rejectDraft(item.id, {
+          account_id: item.account_id,
+          previous_updated_timestamp: item.updated
+        })
+      } else {
+        await api.payments.rejectRequest(item.id, { account_id: item.account_id })
+      }
+      window.showToast?.(`Rejected ${itemLabel(item)}.`, 'success')
+      removeItem(item)
     } catch (e) {
       window.showToast?.(e.message || 'Reject failed', 'error')
     } finally {
@@ -278,7 +300,7 @@
     <div>
       <h1 class="text-lg font-semibold text-va-text">Payments</h1>
       <p class="text-xs text-va-muted mt-0.5">
-        Draft payments need approval here or in the bunq app. Scheduled payments auto-execute.
+        Draft payments and incoming requests need approval here or in the bunq app. Scheduled payments auto-execute.
       </p>
     </div>
   </div>
@@ -304,12 +326,12 @@
           <h2 class="text-base font-semibold text-va-text flex items-center gap-2">
             <span class="icon-[tabler--shield-check] w-4 h-4 text-va-warning"></span>
             Pending Approvals
-            {#if pendingDrafts.length}
-              <span class="text-xs px-1.5 py-0.5 rounded-full bg-va-warning/20 text-va-warning">{pendingDrafts.length}</span>
+            {#if pendingApprovals.length}
+              <span class="text-xs px-1.5 py-0.5 rounded-full bg-va-warning/20 text-va-warning">{pendingApprovals.length}</span>
             {/if}
           </h2>
           <button
-            onclick={() => loadPendingDrafts(true)}
+            onclick={() => loadPendingApprovals(true)}
             disabled={pendingLoading}
             class="p-1 rounded-md text-va-muted hover:text-va-text transition-colors"
             title="Refresh from bunq"
@@ -317,20 +339,22 @@
             <span class="icon-[tabler--refresh] w-4 h-4 {pendingLoading ? 'animate-spin' : ''}"></span>
           </button>
         </div>
-        {#if pendingLoading && pendingDrafts.length === 0}
+        {#if pendingLoading && pendingApprovals.length === 0}
           <div class="flex items-center gap-2 text-sm text-va-muted">
             <div class="w-4 h-4 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
             Checking bunq…
           </div>
-        {:else if pendingDrafts.length === 0}
-          <p class="text-sm text-va-muted">No draft payments waiting for approval.</p>
+        {:else if pendingApprovals.length === 0}
+          <p class="text-sm text-va-muted">No draft payments or incoming requests waiting for approval.</p>
         {:else}
           <div class="space-y-2">
-            {#each pendingDrafts as d (d.id)}
+            {#each pendingApprovals as d (itemKey(d))}
               <div class="p-3 rounded-lg bg-va-canvas border border-va-border/50 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div class="text-sm min-w-0 flex-1">
-                  <div class="text-va-text truncate">
-                    {d.amount} {d.currency} → {d.counterparty_name || d.counterparty_iban || '—'}
+                  <div class="text-va-text truncate flex items-center gap-2">
+                    <span class="{d.kind === 'draft' ? 'icon-[tabler--send]' : 'icon-[tabler--arrow-down-left]'} w-3.5 h-3.5 text-va-muted flex-shrink-0"></span>
+                    <span class="truncate">{d.amount} {d.currency} → {d.counterparty_name || d.counterparty_iban || '—'}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-va-hover text-va-muted flex-shrink-0">{itemKindLabel(d)}</span>
                   </div>
                   <div class="text-xs text-va-muted truncate font-mono">
                     {d.counterparty_iban ? formatIban(d.counterparty_iban) : ''}
@@ -342,12 +366,13 @@
                     From {d.account_name} · {formatScheduleDt(d.created)}
                     {#if d.created_by}· by {d.created_by}{/if}
                     {#if d.entry_count > 1}· {d.entry_count} entries{/if}
+                    {#if d.expires}· expires {formatScheduleDt(d.expires)}{/if}
                   </div>
                 </div>
                 <div class="flex gap-2 flex-shrink-0">
                   <Button
                     variant="danger"
-                    onclick={() => rejectDraft(d)}
+                    onclick={() => rejectItem(d)}
                     disabled={actingId !== null}
                   >
                     <span class="icon-[tabler--x] w-3.5 h-3.5"></span>
@@ -355,8 +380,8 @@
                   </Button>
                   <Button
                     variant="success"
-                    onclick={() => approveDraft(d)}
-                    loading={actingId === d.id}
+                    onclick={() => approveItem(d)}
+                    loading={actingId === itemKey(d)}
                     disabled={actingId !== null}
                   >
                     <span class="icon-[tabler--fingerprint] w-3.5 h-3.5"></span>

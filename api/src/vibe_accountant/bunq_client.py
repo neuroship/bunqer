@@ -17,6 +17,7 @@ from bunq.sdk.model.generated.endpoint import (
     DraftPaymentApiObject,
     MonetaryAccountBankApiObject,
     PaymentApiObject,
+    RequestResponseApiObject,
     ScheduleApiObject,
     SchedulePaymentApiObject,
     UserApiObject,
@@ -487,4 +488,60 @@ class BunqClient:
             monetary_account_id=monetary_account_id,
             status=status,
             previous_updated_timestamp=previous_updated_timestamp,
+        )
+
+    def list_request_responses(self, monetary_account_id: int) -> list[dict[str, Any]]:
+        """List incoming payment requests for an account as raw bunq JSON."""
+        api_client = BunqApiClient(RequestResponseApiObject._get_api_context())
+        endpoint_url = RequestResponseApiObject._ENDPOINT_URL_LISTING.format(
+            RequestResponseApiObject._determine_user_id(),
+            RequestResponseApiObject._determine_monetary_account_id(monetary_account_id),
+        )
+        response_raw = api_client.get(endpoint_url, {"count": "200"}, {})
+        body = json.loads(response_raw.body_bytes.decode())
+        return [
+            item["RequestResponse"]
+            for item in body.get("Response", [])
+            if "RequestResponse" in item
+        ]
+
+    def get_request_response(
+        self, monetary_account_id: int, request_response_id: int
+    ) -> dict[str, Any]:
+        """Get one incoming payment request as raw bunq JSON."""
+        api_client = BunqApiClient(RequestResponseApiObject._get_api_context())
+        endpoint_url = RequestResponseApiObject._ENDPOINT_URL_READ.format(
+            RequestResponseApiObject._determine_user_id(),
+            RequestResponseApiObject._determine_monetary_account_id(monetary_account_id),
+            request_response_id,
+        )
+        response_raw = api_client.get(endpoint_url, {}, {})
+        body = json.loads(response_raw.body_bytes.decode())
+        for item in body.get("Response", []):
+            if "RequestResponse" in item:
+                return item["RequestResponse"]
+        raise ValueError(f"Request response {request_response_id} not found")
+
+    def update_request_response_status(
+        self, monetary_account_id: int, request_response_id: int, status: str
+    ) -> None:
+        """Accept (paying the full amount inquired) or reject an incoming payment request."""
+        amount_responded = None
+        if status == "ACCEPTED":
+            req = self.get_request_response(monetary_account_id, request_response_id)
+            if req.get("status") != "PENDING":
+                raise ValueError(f"Request is no longer pending (status {req.get('status')})")
+            inquired = req.get("amount_inquired") or {}
+            amount_responded = AmountObject(
+                value=inquired.get("value"), currency=inquired.get("currency")
+            )
+        logger.info(
+            f"Updating request response id={request_response_id} on account "
+            f"{monetary_account_id} to {status}"
+        )
+        RequestResponseApiObject.update(
+            request_response_id=request_response_id,
+            monetary_account_id=monetary_account_id,
+            status=status,
+            amount_responded=amount_responded,
         )

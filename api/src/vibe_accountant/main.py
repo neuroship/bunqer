@@ -99,8 +99,8 @@ async def startup_event():
 
     asyncio.create_task(background_sync())
 
-    from .services.draft_watcher import watch_draft_payments
-    asyncio.create_task(watch_draft_payments())
+    from .services.approval_watcher import watch_pending_approvals
+    asyncio.create_task(watch_pending_approvals())
 
 
 @app.on_event("shutdown")

@@ -22,7 +22,7 @@
   let unsubscribe = null
   let sidebarOpen = $state(false)
   let openDocumentId = $state(null)
-  let pendingDrafts = $state(0)
+  let pendingApprovals = $state(0)
 
   function navigate(page) {
     currentPage = page
@@ -63,12 +63,12 @@
     showToast('Session expired. Please log in again.', 'error')
   }
 
-  async function loadPendingDrafts() {
+  async function loadPendingApprovals() {
     try {
-      const items = await payments.listPendingDrafts()
-      pendingDrafts = items.length
+      const items = await payments.listPendingApprovals()
+      pendingApprovals = items.length
     } catch (e) {
-      console.error('Failed to load pending drafts:', e)
+      console.error('Failed to load pending approvals:', e)
     }
   }
 
@@ -106,12 +106,12 @@
       case 'notification':
         showToast(event.data.message, event.data.level || 'info')
         break
-      case 'draft_payments_pending':
-        pendingDrafts = event.data.count
+      case 'approvals_pending':
+        pendingApprovals = event.data.count
         if (event.data.new_count > 0) {
           showToast(event.data.message, 'warning')
         }
-        window.dispatchEvent(new CustomEvent('drafts-updated', { detail: event.data.items }))
+        window.dispatchEvent(new CustomEvent('approvals-updated', { detail: event.data.items }))
         break
     }
   }
@@ -125,7 +125,7 @@
     // Only subscribe to events if authenticated
     if (authenticated) {
       unsubscribe = subscribeToEvents(handleEvent)
-      loadPendingDrafts()
+      loadPendingApprovals()
     }
   })
 
@@ -133,7 +133,7 @@
   $effect(() => {
     if (authenticated && !unsubscribe) {
       unsubscribe = subscribeToEvents(handleEvent)
-      loadPendingDrafts()
+      loadPendingApprovals()
     }
   })
 
@@ -147,7 +147,7 @@
   <Login onLogin={handleLogin} />
 {:else}
   <div class="flex min-h-screen bg-va-canvas">
-    <Sidebar {currentPage} onNavigate={navigate} {username} onLogout={handleLogout} bind:open={sidebarOpen} {pendingDrafts} />
+    <Sidebar {currentPage} onNavigate={navigate} {username} onLogout={handleLogout} bind:open={sidebarOpen} {pendingApprovals} />
 
     <main class="flex-1 p-3 sm:p-4 lg:p-6 min-w-0">
       <!-- Mobile header with hamburger -->

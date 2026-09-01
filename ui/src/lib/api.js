@@ -416,12 +416,16 @@ export const payments = {
   createDraft: (data) => request('/payments/draft', { method: 'POST', body: data }),
   getDraft: (draftId, accountId) =>
     request(`/payments/draft/${draftId}?account_id=${accountId}`),
-  listPendingDrafts: (refresh = false) =>
-    request(`/payments/drafts/pending${refresh ? '?refresh=true' : ''}`),
+  listPendingApprovals: (refresh = false) =>
+    request(`/payments/approvals/pending${refresh ? '?refresh=true' : ''}`),
   approveDraft: (draftId, data) =>
     request(`/payments/draft/${draftId}/approve`, { method: 'POST', body: data }),
   rejectDraft: (draftId, data) =>
     request(`/payments/draft/${draftId}/reject`, { method: 'POST', body: data }),
+  approveRequest: (requestId, data) =>
+    request(`/payments/request/${requestId}/approve`, { method: 'POST', body: data }),
+  rejectRequest: (requestId, data) =>
+    request(`/payments/request/${requestId}/reject`, { method: 'POST', body: data }),
   createSchedule: (data) => request('/payments/schedule', { method: 'POST', body: data }),
   listSchedules: (accountId) =>
     request(`/payments/schedule?account_id=${accountId}`),
