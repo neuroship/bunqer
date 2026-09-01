@@ -1,7 +1,7 @@
 <script>
   import { getPrivacyMode, togglePrivacyMode } from '../privacy.svelte.js'
 
-  let { currentPage, onNavigate, username = null, onLogout = () => {}, open = $bindable(false) } = $props()
+  let { currentPage, onNavigate, username = null, onLogout = () => {}, open = $bindable(false), pendingDrafts = 0 } = $props()
 
   let privacyOn = $derived(getPrivacyMode())
 
@@ -51,6 +51,14 @@
           >
             <span class="{item.icon} w-4 h-4"></span>
             <span>{item.label}</span>
+            {#if item.id === 'payments' && pendingDrafts > 0}
+              <span
+                class="ml-auto text-[10px] leading-none px-1.5 py-1 rounded-full bg-va-warning/20 text-va-warning font-medium"
+                title="{pendingDrafts} draft payment(s) awaiting approval"
+              >
+                {pendingDrafts}
+              </span>
+            {/if}
           </button>
         </li>
       {/each}

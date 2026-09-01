@@ -16,6 +16,8 @@ from ..bunq_client import BunqClient
 from ..database import get_db
 from ..logger import logger
 from ..models import Account, Integration, Transaction
+from ..services import draft_watcher
+from .passkeys import PasskeyAssertion, verify_passkey_assertion
 
 RecurrenceUnit = Literal["HOURLY", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"]
 
@@ -58,7 +60,7 @@ class DraftPaymentResponse(BaseModel):
     counterparty_name: str
     description: str
     status: str = "AWAITING_APPROVAL"
-    message: str = "Draft payment created. Approve in the bunq app to execute."
+    message: str = "Draft payment created. Approve it in bunqer or the bunq app to execute."
 
 
 class CounterpartySuggestion(BaseModel):
@@ -100,7 +102,7 @@ def list_counterparties(db: Session = Depends(get_db), limit: int = 200):
 
 @router.post("/draft", response_model=DraftPaymentResponse)
 def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get_db)):
-    """Create a bunq draft payment from a local account. Confirmation happens out-of-band in the bunq app."""
+    """Create a bunq draft payment from a local account. Approval happens under pending drafts or in the bunq app."""
     logger.info(
         f"POST /payments/draft: account_id={payload.account_id}, "
         f"amount={payload.amount} {payload.currency}, to={payload.counterparty_name}"
@@ -136,6 +138,11 @@ def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get
         _raise_bunq_http_error(e, "draft payment")
     logger.info(f"POST /payments/draft done: id={draft_id}")
 
+    try:
+        draft_watcher.refresh_pending_drafts(db)
+    except Exception as e:
+        logger.warning(f"Could not refresh pending drafts after create: {e}")
+
     return DraftPaymentResponse(
         draft_payment_id=draft_id,
         account_id=account.id,
@@ -146,6 +153,82 @@ def create_draft_payment(payload: DraftPaymentRequest, db: Session = Depends(get
         counterparty_name=payload.counterparty_name,
         description=payload.description or "",
     )
+
+
+@router.get("/drafts/pending")
+def list_pending_drafts(refresh: bool = False, db: Session = Depends(get_db)):
+    """List draft payments awaiting approval across all bunq-linked accounts.
+
+    Serves the background watcher's cache unless refresh=true (or nothing is cached yet).
+    """
+    if not refresh:
+        cached = draft_watcher.get_cached_pending()
+        if cached is not None:
+            return cached
+    try:
+        return draft_watcher.refresh_pending_drafts(db)
+    except Exception as e:
+        logger.error(f"Failed to list pending drafts: {e}")
+        _raise_bunq_http_error(e, "draft listing")
+
+
+class DraftActionRequest(BaseModel):
+    """Reject a pending draft payment."""
+
+    account_id: int = Field(..., description="Local Account ID (DB id) the draft belongs to")
+    previous_updated_timestamp: str = Field(
+        ..., description="The draft's 'updated' value as last seen; bunq refuses stale updates"
+    )
+
+
+class DraftApproveRequest(DraftActionRequest):
+    """Approve a pending draft payment; requires a fresh passkey assertion."""
+
+    passkey: PasskeyAssertion
+
+
+def _respond_to_draft(
+    db: Session, draft_id: int, payload: DraftActionRequest, new_status: str
+) -> dict:
+    account, bunq_client = _get_account_and_client(db, payload.account_id)
+    try:
+        bunq_client.update_draft_payment_status(
+            monetary_account_id=account.monetary_account_id,
+            draft_id=draft_id,
+            status=new_status,
+            previous_updated_timestamp=payload.previous_updated_timestamp,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set draft payment {draft_id} to {new_status}: {e}")
+        logger.error(traceback.format_exc())
+        _raise_bunq_http_error(e, f"draft {new_status.lower()}")
+
+    try:
+        draft_watcher.refresh_pending_drafts(db)
+    except Exception as e:
+        logger.warning(f"Could not refresh pending drafts after {new_status}: {e}")
+    return {"draft_payment_id": draft_id, "status": new_status}
+
+
+@router.post("/draft/{draft_id}/approve")
+def approve_draft_payment(
+    draft_id: int, payload: DraftApproveRequest, db: Session = Depends(get_db)
+):
+    """Approve a pending draft payment. Money moves, so a passkey re-verification is required."""
+    verify_passkey_assertion(db, payload.passkey, "verify")
+    logger.info(f"POST /payments/draft/{draft_id}/approve: account_id={payload.account_id}")
+    return _respond_to_draft(db, draft_id, payload, "ACCEPTED")
+
+
+@router.post("/draft/{draft_id}/reject")
+def reject_draft_payment(
+    draft_id: int, payload: DraftActionRequest, db: Session = Depends(get_db)
+):
+    """Reject a pending draft payment."""
+    logger.info(f"POST /payments/draft/{draft_id}/reject: account_id={payload.account_id}")
+    return _respond_to_draft(db, draft_id, payload, "REJECTED")
 
 
 @router.get("/draft/{draft_id}")

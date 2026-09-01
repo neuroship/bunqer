@@ -447,3 +447,44 @@ class BunqClient:
             schedule_payment_id=schedule_payment_id,
             monetary_account_id=monetary_account_id,
         )
+
+    def list_draft_payments(self, monetary_account_id: int) -> list[dict[str, Any]]:
+        """List draft payments for an account as raw bunq JSON.
+
+        Raw call for the same reason as list_schedule_payments: the SDK object
+        drops fields (id, updated) that are needed to approve or reject a draft.
+        """
+        api_client = BunqApiClient(DraftPaymentApiObject._get_api_context())
+        endpoint_url = DraftPaymentApiObject._ENDPOINT_URL_LISTING.format(
+            DraftPaymentApiObject._determine_user_id(),
+            DraftPaymentApiObject._determine_monetary_account_id(monetary_account_id),
+        )
+        response_raw = api_client.get(endpoint_url, {"count": "200"}, {})
+        body = json.loads(response_raw.body_bytes.decode())
+        return [
+            item["DraftPayment"]
+            for item in body.get("Response", [])
+            if "DraftPayment" in item
+        ]
+
+    def update_draft_payment_status(
+        self,
+        monetary_account_id: int,
+        draft_id: int,
+        status: str,
+        previous_updated_timestamp: str,
+    ) -> None:
+        """Respond to a pending draft payment with status ACCEPTED or REJECTED.
+
+        previous_updated_timestamp must be the 'updated' value last seen for the
+        draft; bunq uses it to reject the update if the draft changed meanwhile.
+        """
+        logger.info(
+            f"Updating draft payment id={draft_id} on account {monetary_account_id} to {status}"
+        )
+        DraftPaymentApiObject.update(
+            draft_payment_id=draft_id,
+            monetary_account_id=monetary_account_id,
+            status=status,
+            previous_updated_timestamp=previous_updated_timestamp,
+        )

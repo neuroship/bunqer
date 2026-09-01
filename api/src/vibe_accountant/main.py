@@ -99,6 +99,9 @@ async def startup_event():
 
     asyncio.create_task(background_sync())
 
+    from .services.draft_watcher import watch_draft_payments
+    asyncio.create_task(watch_draft_payments())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

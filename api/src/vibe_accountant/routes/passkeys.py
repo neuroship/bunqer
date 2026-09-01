@@ -222,9 +222,8 @@ async def register_passkey(
 # ── Login (public — passkey is the only credential) ─────────────────
 
 
-@router.get("/login-options")
-async def login_options(db: Session = Depends(get_db)):
-    """Generate authentication options for passkey login."""
+def _authentication_options(db: Session, challenge_key: str) -> dict:
+    """Generate WebAuthn authentication options and store the challenge under challenge_key."""
     credentials = db.query(WebAuthnCredential).all()
     if not credentials:
         raise HTTPException(
@@ -243,7 +242,7 @@ async def login_options(db: Session = Depends(get_db)):
         user_verification=UserVerificationRequirement.PREFERRED,
     )
 
-    _store_challenge("login", options.challenge)
+    _store_challenge(challenge_key, options.challenge)
 
     return {
         "challenge": urlsafe_b64encode(options.challenge).decode().rstrip("="),
@@ -262,32 +261,26 @@ async def login_options(db: Session = Depends(get_db)):
     }
 
 
-class PasskeyLoginRequest(BaseModel):
-    """Login request: passkey assertion."""
+class PasskeyAssertion(BaseModel):
+    """Passkey assertion from the browser (navigator.credentials.get)."""
     id: str
     rawId: str
     type: str
     response: dict
 
 
-class PasskeyLoginResponse(BaseModel):
-    """Login response after successful passkey verification."""
-    access_token: str
-    token_type: str = "bearer"
-    username: str
+def verify_passkey_assertion(
+    db: Session, body: PasskeyAssertion, challenge_key: str
+) -> WebAuthnCredential:
+    """Verify an assertion against the challenge stored under challenge_key.
 
-
-@router.post("/login", response_model=PasskeyLoginResponse)
-async def passkey_login(
-    body: PasskeyLoginRequest,
-    db: Session = Depends(get_db),
-):
-    """Verify a passkey assertion and return a JWT token."""
-    challenge = _pop_challenge("login")
+    Raises HTTPException on an expired challenge, unknown passkey or bad signature.
+    """
+    challenge = _pop_challenge(challenge_key)
     if challenge is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Login challenge expired or missing. Please try again.",
+            detail="Passkey challenge expired or missing. Please try again.",
         )
 
     # Find the credential by ID
@@ -318,7 +311,7 @@ async def passkey_login(
             credential_current_sign_count=credential.sign_count,
         )
     except Exception as e:
-        logger.error(f"Passkey login verification failed: {e}")
+        logger.error(f"Passkey verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Passkey verification failed",
@@ -327,6 +320,29 @@ async def passkey_login(
     # Update sign count
     credential.sign_count = verification.new_sign_count
     db.commit()
+    return credential
+
+
+@router.get("/login-options")
+async def login_options(db: Session = Depends(get_db)):
+    """Generate authentication options for passkey login."""
+    return _authentication_options(db, "login")
+
+
+class PasskeyLoginResponse(BaseModel):
+    """Login response after successful passkey verification."""
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+
+
+@router.post("/login", response_model=PasskeyLoginResponse)
+async def passkey_login(
+    body: PasskeyAssertion,
+    db: Session = Depends(get_db),
+):
+    """Verify a passkey assertion and return a JWT token."""
+    credential = verify_passkey_assertion(db, body, "login")
 
     username = settings.auth_username
     access_token = create_access_token(username)
@@ -336,6 +352,21 @@ async def passkey_login(
         access_token=access_token,
         username=username,
     )
+
+
+# ── Step-up verification (requires auth) ────────────────────────────
+
+
+@router.get("/verify-options")
+async def verify_options(
+    username: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Authentication options to re-verify the signed-in user before a sensitive action.
+
+    The resulting assertion is consumed by the action endpoint (e.g. draft payment approval).
+    """
+    return _authentication_options(db, "verify")
 
 
 # ── Management (requires auth) ──────────────────────────────────────

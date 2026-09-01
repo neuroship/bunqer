@@ -132,6 +132,36 @@ function base64urlToBuffer(base64url) {
   return bytes.buffer
 }
 
+/** Run navigator.credentials.get for server-provided options and serialize the assertion */
+async function getAssertion(options) {
+  const publicKey = {
+    challenge: base64urlToBuffer(options.challenge),
+    rpId: options.rpId,
+    timeout: options.timeout,
+    allowCredentials: (options.allowCredentials || []).map(c => ({
+      type: c.type,
+      id: base64urlToBuffer(c.id),
+    })),
+    userVerification: options.userVerification,
+  }
+
+  const assertion = await navigator.credentials.get({ publicKey })
+
+  return {
+    id: assertion.id,
+    rawId: bufferToBase64url(assertion.rawId),
+    type: assertion.type,
+    response: {
+      authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+      clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+      signature: bufferToBase64url(assertion.response.signature),
+      userHandle: assertion.response.userHandle
+        ? bufferToBase64url(assertion.response.userHandle)
+        : null,
+    },
+  }
+}
+
 export const passkeys = {
   /** Check if WebAuthn is supported by this browser */
   isSupported: () => !!window.PublicKeyCredential,
@@ -198,45 +228,22 @@ export const passkeys = {
 
   /** Sign in with a passkey */
   login: async () => {
-    // 1. Get login challenge options from server
     const options = await request('/auth/passkeys/login-options', { publicAuth: true })
-
-    // 2. Convert to browser-friendly format
-    const publicKey = {
-      challenge: base64urlToBuffer(options.challenge),
-      rpId: options.rpId,
-      timeout: options.timeout,
-      allowCredentials: (options.allowCredentials || []).map(c => ({
-        type: c.type,
-        id: base64urlToBuffer(c.id),
-      })),
-      userVerification: options.userVerification,
-    }
-
-    // 3. Get assertion via browser API
-    const assertion = await navigator.credentials.get({ publicKey })
-
-    // 4. Send assertion to server for verification
+    const body = await getAssertion(options)
     const response = await request('/auth/passkeys/login', {
       method: 'POST',
       publicAuth: true,
-      body: {
-        id: assertion.id,
-        rawId: bufferToBase64url(assertion.rawId),
-        type: assertion.type,
-        response: {
-          authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
-          clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
-          signature: bufferToBase64url(assertion.response.signature),
-          userHandle: assertion.response.userHandle
-            ? bufferToBase64url(assertion.response.userHandle)
-            : null,
-        },
-      }
+      body,
     })
 
     setAuth(response.access_token, response.username)
     return response
+  },
+
+  /** Re-verify the signed-in user; returns an assertion to attach to a sensitive action */
+  verify: async () => {
+    const options = await request('/auth/passkeys/verify-options')
+    return getAssertion(options)
   },
 }
 
@@ -409,6 +416,12 @@ export const payments = {
   createDraft: (data) => request('/payments/draft', { method: 'POST', body: data }),
   getDraft: (draftId, accountId) =>
     request(`/payments/draft/${draftId}?account_id=${accountId}`),
+  listPendingDrafts: (refresh = false) =>
+    request(`/payments/drafts/pending${refresh ? '?refresh=true' : ''}`),
+  approveDraft: (draftId, data) =>
+    request(`/payments/draft/${draftId}/approve`, { method: 'POST', body: data }),
+  rejectDraft: (draftId, data) =>
+    request(`/payments/draft/${draftId}/reject`, { method: 'POST', body: data }),
   createSchedule: (data) => request('/payments/schedule', { method: 'POST', body: data }),
   listSchedules: (accountId) =>
     request(`/payments/schedule?account_id=${accountId}`),

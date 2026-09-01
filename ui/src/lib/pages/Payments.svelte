@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import Card from '../components/Card.svelte'
   import Button from '../components/Button.svelte'
   import Input from '../components/Input.svelte'
@@ -16,6 +16,9 @@
   let schedules = $state([])
   let schedulesLoading = $state(false)
   let cancellingId = $state(null)
+  let pendingDrafts = $state([])
+  let pendingLoading = $state(false)
+  let actingId = $state(null)
 
   let form = $state({
     account_id: '',
@@ -71,7 +74,13 @@
     accounts.find(a => String(a.id) === String(form.account_id))
   )
 
+  function handleDraftsUpdated(e) {
+    pendingDrafts = e.detail || []
+  }
+
   onMount(async () => {
+    window.addEventListener('drafts-updated', handleDraftsUpdated)
+    loadPendingDrafts(true)
     try {
       const [accs, cps] = await Promise.all([
         api.setup.listAccounts(),
@@ -90,6 +99,65 @@
       loading = false
     }
   })
+
+  onDestroy(() => {
+    window.removeEventListener('drafts-updated', handleDraftsUpdated)
+  })
+
+  async function loadPendingDrafts(refresh = false) {
+    pendingLoading = true
+    try {
+      pendingDrafts = await api.payments.listPendingDrafts(refresh)
+    } catch (e) {
+      console.error('Failed to load pending drafts:', e)
+      window.showToast?.(e.message || 'Failed to load pending drafts', 'error')
+    } finally {
+      pendingLoading = false
+    }
+  }
+
+  function draftLabel(d) {
+    return `${d.amount} ${d.currency} to ${d.counterparty_name || d.counterparty_iban}`
+  }
+
+  async function approveDraft(d) {
+    actingId = d.id
+    try {
+      const passkey = await api.passkeys.verify()
+      await api.payments.approveDraft(d.id, {
+        account_id: d.account_id,
+        previous_updated_timestamp: d.updated,
+        passkey
+      })
+      window.showToast?.(`Approved ${draftLabel(d)}.`, 'success')
+      pendingDrafts = pendingDrafts.filter(p => p.id !== d.id)
+    } catch (e) {
+      if (e.name === 'NotAllowedError') {
+        window.showToast?.('Passkey verification was cancelled.', 'warning')
+      } else {
+        window.showToast?.(e.message || 'Approve failed', 'error')
+      }
+    } finally {
+      actingId = null
+    }
+  }
+
+  async function rejectDraft(d) {
+    if (!confirm(`Reject draft payment of ${draftLabel(d)}?`)) return
+    actingId = d.id
+    try {
+      await api.payments.rejectDraft(d.id, {
+        account_id: d.account_id,
+        previous_updated_timestamp: d.updated
+      })
+      window.showToast?.(`Rejected ${draftLabel(d)}.`, 'success')
+      pendingDrafts = pendingDrafts.filter(p => p.id !== d.id)
+    } catch (e) {
+      window.showToast?.(e.message || 'Reject failed', 'error')
+    } finally {
+      actingId = null
+    }
+  }
 
   async function loadSchedules() {
     if (!form.account_id) {
@@ -172,7 +240,7 @@
         await loadSchedules()
       } else {
         lastDraft = await api.payments.createDraft(base)
-        window.showToast?.('Draft payment created. Approve in the bunq app.', 'success')
+        window.showToast?.('Draft payment created. Approve it below or in the bunq app.', 'success')
       }
       form.amount = ''
       form.description = ''
@@ -210,7 +278,7 @@
     <div>
       <h1 class="text-lg font-semibold text-va-text">Payments</h1>
       <p class="text-xs text-va-muted mt-0.5">
-        Draft payments need bunq-app approval. Scheduled payments auto-execute.
+        Draft payments need approval here or in the bunq app. Scheduled payments auto-execute.
       </p>
     </div>
   </div>
@@ -230,6 +298,82 @@
       </div>
     </Card>
   {:else}
+    <div class="mb-4">
+      <Card>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-semibold text-va-text flex items-center gap-2">
+            <span class="icon-[tabler--shield-check] w-4 h-4 text-va-warning"></span>
+            Pending Approvals
+            {#if pendingDrafts.length}
+              <span class="text-xs px-1.5 py-0.5 rounded-full bg-va-warning/20 text-va-warning">{pendingDrafts.length}</span>
+            {/if}
+          </h2>
+          <button
+            onclick={() => loadPendingDrafts(true)}
+            disabled={pendingLoading}
+            class="p-1 rounded-md text-va-muted hover:text-va-text transition-colors"
+            title="Refresh from bunq"
+          >
+            <span class="icon-[tabler--refresh] w-4 h-4 {pendingLoading ? 'animate-spin' : ''}"></span>
+          </button>
+        </div>
+        {#if pendingLoading && pendingDrafts.length === 0}
+          <div class="flex items-center gap-2 text-sm text-va-muted">
+            <div class="w-4 h-4 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div>
+            Checking bunq…
+          </div>
+        {:else if pendingDrafts.length === 0}
+          <p class="text-sm text-va-muted">No draft payments waiting for approval.</p>
+        {:else}
+          <div class="space-y-2">
+            {#each pendingDrafts as d (d.id)}
+              <div class="p-3 rounded-lg bg-va-canvas border border-va-border/50 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div class="text-sm min-w-0 flex-1">
+                  <div class="text-va-text truncate">
+                    {d.amount} {d.currency} → {d.counterparty_name || d.counterparty_iban || '—'}
+                  </div>
+                  <div class="text-xs text-va-muted truncate font-mono">
+                    {d.counterparty_iban ? formatIban(d.counterparty_iban) : ''}
+                  </div>
+                  {#if d.description}
+                    <div class="text-xs text-va-muted truncate mt-0.5">{d.description}</div>
+                  {/if}
+                  <div class="text-xs text-va-muted mt-1">
+                    From {d.account_name} · {formatScheduleDt(d.created)}
+                    {#if d.created_by}· by {d.created_by}{/if}
+                    {#if d.entry_count > 1}· {d.entry_count} entries{/if}
+                  </div>
+                </div>
+                <div class="flex gap-2 flex-shrink-0">
+                  <Button
+                    variant="danger"
+                    onclick={() => rejectDraft(d)}
+                    disabled={actingId !== null}
+                  >
+                    <span class="icon-[tabler--x] w-3.5 h-3.5"></span>
+                    Reject
+                  </Button>
+                  <Button
+                    variant="success"
+                    onclick={() => approveDraft(d)}
+                    loading={actingId === d.id}
+                    disabled={actingId !== null}
+                  >
+                    <span class="icon-[tabler--fingerprint] w-3.5 h-3.5"></span>
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            {/each}
+          </div>
+          <p class="text-xs text-va-muted mt-3">
+            <span class="icon-[tabler--info-circle] w-3.5 h-3.5 inline-block align-text-bottom mr-1"></span>
+            Approving asks for your passkey again and moves money immediately.
+          </p>
+        {/if}
+      </Card>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="lg:col-span-2">
         <Card title={scheduleMode ? 'New Scheduled Payment' : 'New Draft Payment'}>
@@ -388,7 +532,7 @@
                 <span class="icon-[tabler--info-circle] w-3.5 h-3.5 inline-block align-text-bottom mr-1"></span>
                 {scheduleMode
                   ? 'Scheduled payments auto-execute on bunq side. Cancel here to stop them.'
-                  : 'After creating, open the bunq app to approve the draft payment.'}
+                  : 'After creating, approve the draft under Pending Approvals or in the bunq app.'}
               </div>
             </div>
           {/if}
@@ -485,7 +629,7 @@
                 <div class="text-va-text">{lastDraft.status}</div>
               </div>
               <div class="pt-2 border-t border-va-border/50 text-xs text-va-muted">
-                Open the bunq app to approve. Once approved, the payment executes and shows up in transactions on the next sync.
+                Approve under Pending Approvals or in the bunq app. Once approved, the payment executes and shows up in transactions on the next sync.
               </div>
               <div class="pt-2">
                 <Button variant="secondary" onclick={refreshStatus}>
