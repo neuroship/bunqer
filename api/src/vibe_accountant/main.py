@@ -14,6 +14,8 @@ from .config import settings
 from .logger import logger
 from .routes import categories, documents, events, health, integrations, invoices, passkeys, payments, settings as settings_routes, setup, transactions
 
+SYNC_INTERVAL_SECONDS = 60
+
 
 def run_migrations():
     """Run database migrations using Alembic."""
@@ -87,17 +89,19 @@ async def startup_event():
     logger.info("Vibe Accountant API starting up...")
     run_migrations()
 
-    # Auto-sync all accounts on startup (run in background to not block startup)
-    async def background_sync():
+    # Sync all accounts on startup and then every SYNC_INTERVAL_SECONDS (in a thread to not block the event loop)
+    async def periodic_sync():
         # Small delay to let the server fully start
         await asyncio.sleep(2)
         from .routes.setup import auto_sync_all_accounts
-        try:
-            auto_sync_all_accounts()
-        except Exception as e:
-            logger.error(f"Failed to sync accounts on startup: {e}")
+        while True:
+            try:
+                await asyncio.to_thread(auto_sync_all_accounts)
+            except Exception as e:
+                logger.error(f"Failed to sync accounts: {e}")
+            await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
-    asyncio.create_task(background_sync())
+    asyncio.create_task(periodic_sync())
 
     from .services.approval_watcher import watch_pending_approvals
     asyncio.create_task(watch_pending_approvals())

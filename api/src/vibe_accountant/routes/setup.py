@@ -1,6 +1,8 @@
 """Setup and onboarding endpoints for bunq integration."""
 
+import threading
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,6 +15,14 @@ from ..models import Account, AccountCreate, Integration, Transaction
 from .events import broadcast_event
 
 router = APIRouter(prefix="/setup", tags=["setup"])
+
+# Prevents the periodic auto-sync and the manual sync endpoints from running concurrently
+_sync_lock = threading.Lock()
+
+
+def _acquire_sync_lock():
+    if not _sync_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A sync is already running")
 
 
 @router.get("/accounts")
@@ -86,6 +96,7 @@ def resync_all_transactions(db: Session = Depends(get_db)):
     import traceback
     from .events import send_notification
 
+    _acquire_sync_lock()
     try:
         logger.info("=== RESYNC: Clearing all transactions ===")
 
@@ -141,6 +152,8 @@ def resync_all_transactions(db: Session = Depends(get_db)):
         logger.error(f"Error in resync: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Re-sync failed due to an internal error")
+    finally:
+        _sync_lock.release()
 
 
 @router.post("/backfill")
@@ -153,6 +166,7 @@ def backfill_transactions(db: Session = Depends(get_db)):
     import traceback
     from .events import send_notification
 
+    _acquire_sync_lock()
     try:
         logger.info("=== BACKFILL: Fetching historical transactions ===")
 
@@ -197,6 +211,8 @@ def backfill_transactions(db: Session = Depends(get_db)):
         logger.error(f"Error in backfill: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Backfill failed due to an internal error")
+    finally:
+        _sync_lock.release()
 
 
 @router.post("/sync-now")
@@ -204,6 +220,7 @@ def trigger_sync_now(db: Session = Depends(get_db)):
     """Synchronously sync all accounts (for debugging)."""
     import traceback
 
+    _acquire_sync_lock()
     try:
         logger.info("=== Manual sync triggered ===")
         accounts = db.query(Account).filter(Account.monetary_account_id.isnot(None)).all()
@@ -213,7 +230,8 @@ def trigger_sync_now(db: Session = Depends(get_db)):
             broadcast_event("auto_sync_completed", {
                 "message": "No accounts configured",
                 "total_new": 0,
-                "results": []
+                "results": [],
+                "manual": True
             })
             return {"status": "no_accounts", "message": "No accounts configured"}
 
@@ -255,13 +273,15 @@ def trigger_sync_now(db: Session = Depends(get_db)):
             broadcast_event("auto_sync_completed", {
                 "message": f"Synced {total_new} new transactions",
                 "total_new": total_new,
-                "results": results
+                "results": results,
+                "manual": True
             })
         else:
             broadcast_event("auto_sync_completed", {
                 "message": "All transactions up to date",
                 "total_new": 0,
-                "results": results
+                "results": results,
+                "manual": True
             })
 
         return {"status": "completed", "results": results}
@@ -273,6 +293,8 @@ def trigger_sync_now(db: Session = Depends(get_db)):
             "message": "Sync failed due to an internal error"
         })
         raise HTTPException(status_code=500, detail="Sync failed due to an internal error")
+    finally:
+        _sync_lock.release()
 
 
 class BunqSetupStartRequest(BaseModel):
@@ -478,6 +500,15 @@ def sync_account_transactions_sync(db, bunq_client: BunqClient, account_id: int)
 
         send_sync_started(account.name, account.id)
 
+        # Store the live account balance so the UI reflects it even without new transactions
+        try:
+            balance = bunq_client.get_account_balance(account.monetary_account_id)
+            if balance is not None:
+                account.balance = Decimal(balance)
+                log(f"    Balance: {balance}")
+        except Exception as e:
+            log(f"    Warning: Failed to fetch balance: {e}")
+
         # Determine start time: last sync or 5 years ago for initial/full sync
         # Subtract 2 hours buffer to handle timezone differences between local time and bunq API (UTC)
         if account.last_synced_at:
@@ -666,9 +697,13 @@ def sync_all_accounts():
 
 
 def auto_sync_all_accounts():
-    """Auto-sync on startup: sync all accounts and notify user via events."""
+    """Sync all accounts and notify user via events. Skips if a sync is already running."""
     from .events import send_notification, broadcast_event
     from ..database import SessionLocal
+
+    if not _sync_lock.acquire(blocking=False):
+        logger.info("Sync already running, skipping auto-sync")
+        return
 
     db = SessionLocal()
     try:
@@ -738,7 +773,6 @@ def auto_sync_all_accounts():
                 "total_new": 0,
                 "results": results
             })
-            send_notification("All transactions up to date", "info")
 
     except Exception as e:
         import traceback
@@ -751,3 +785,4 @@ def auto_sync_all_accounts():
 
     finally:
         db.close()
+        _sync_lock.release()

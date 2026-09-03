@@ -324,6 +324,11 @@ class BunqClient:
         """Get a monetary account by its ID."""
         return MonetaryAccountBankApiObject.get(account_id).value
 
+    def get_account_balance(self, monetary_account_id: int) -> str | None:
+        """Get the current balance value of a monetary account."""
+        account_data = json.loads(self.get_monetary_account_by_id(monetary_account_id).to_json())
+        return (account_data.get("balance") or {}).get("value")
+
     def create_draft_payment(
         self,
         monetary_account_id: int,

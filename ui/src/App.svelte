@@ -95,7 +95,10 @@
           // Trigger page refresh to show new data
           window.dispatchEvent(new CustomEvent('transactions-updated'))
         } else {
-          showToast(event.data.message, 'info')
+          // Only toast for manual syncs, the periodic one would spam every minute
+          if (event.data.manual) showToast(event.data.message, 'info')
+          // Balances can change without new transactions (e.g. pending card reservations)
+          window.dispatchEvent(new CustomEvent('balances-updated'))
         }
         break
       case 'sync_error':

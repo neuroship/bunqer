@@ -169,6 +169,7 @@
   function handleTransactionsUpdated() {
     console.log('Transactions updated, refreshing list...')
     loadTransactions()
+    loadFilterOptions()
   }
 
   function handleClickOutside(event) {
@@ -185,6 +186,7 @@
   onMount(async () => {
     await Promise.all([loadFilterOptions(), loadTransactions()])
     window.addEventListener('transactions-updated', handleTransactionsUpdated)
+    window.addEventListener('balances-updated', loadFilterOptions)
     document.addEventListener('click', handleClickOutside)
 
     // Setup IntersectionObserver for infinite scroll
@@ -200,6 +202,7 @@
 
   onDestroy(() => {
     window.removeEventListener('transactions-updated', handleTransactionsUpdated)
+    window.removeEventListener('balances-updated', loadFilterOptions)
     document.removeEventListener('click', handleClickOutside)
     if (observer) observer.disconnect()
   })

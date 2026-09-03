@@ -101,19 +101,22 @@ async def get_filter_options(db: Session = Depends(get_db)):
     accounts = []
     for acc in db.query(Account).all():
         txn_count = db.query(Transaction).filter(Transaction.account_id == acc.id).count()
-        # Get balance from the most recent transaction's balance_after
-        latest_txn = (
-            db.query(Transaction.balance_after)
-            .filter(Transaction.account_id == acc.id, Transaction.balance_after.isnot(None))
-            .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
-            .first()
-        )
+        # Prefer the live balance stored at sync time, fall back to the most recent transaction's balance_after
+        balance = acc.balance
+        if balance is None:
+            latest_txn = (
+                db.query(Transaction.balance_after)
+                .filter(Transaction.account_id == acc.id, Transaction.balance_after.isnot(None))
+                .order_by(Transaction.transaction_date.desc(), Transaction.id.desc())
+                .first()
+            )
+            balance = latest_txn[0] if latest_txn else None
         accounts.append({
             "id": acc.id,
             "name": acc.name,
             "iban": acc.iban,
             "transaction_count": txn_count,
-            "balance": str(latest_txn[0]) if latest_txn else None,
+            "balance": str(balance) if balance is not None else None,
         })
 
     # Get categories
