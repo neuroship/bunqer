@@ -101,6 +101,10 @@
   // Sync state
   let syncing = $state(false)
 
+  // Export state
+  let exporting = $state(false)
+  let showExportMenu = $state(false)
+
   // Create rule modal (shared component)
   let createRuleModal = $state()
 
@@ -171,6 +175,10 @@
     const dropdown = document.querySelector('[data-column-settings]')
     if (dropdown && !dropdown.contains(event.target)) {
       showColumnSettings = false
+    }
+    const exportMenu = document.querySelector('[data-export-menu]')
+    if (exportMenu && !exportMenu.contains(event.target)) {
+      showExportMenu = false
     }
   }
 
@@ -524,6 +532,19 @@
     }
   }
 
+  async function exportTransactions(format) {
+    showExportMenu = false
+    exporting = true
+    try {
+      await api.transactions.export(format, buildParams())
+    } catch (error) {
+      console.error('Failed to export transactions:', error)
+      window.showToast?.(error.message, 'error')
+    } finally {
+      exporting = false
+    }
+  }
+
   let backfilling = $state(false)
 
   async function backfillTransactions() {
@@ -627,6 +648,40 @@
         {/if}
         Match Docs
       </button>
+      <!-- Export -->
+      <div class="relative" data-export-menu>
+        <button
+          onclick={() => showExportMenu = !showExportMenu}
+          disabled={exporting}
+          class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium {showExportMenu ? 'bg-va-accent/15 border-va-accent text-va-accent' : 'bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted'} disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          title="Download all transactions matching the current filters"
+        >
+          {#if exporting}
+            <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
+          {:else}
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          {/if}
+          Export
+        </button>
+        {#if showExportMenu}
+          <div class="absolute right-0 top-full mt-2 w-36 bg-va-card border border-va-border rounded-lg shadow-lg z-10 p-1">
+            <button onclick={() => exportTransactions('csv')} class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover">
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M9 6v12M15 6v12M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
+              </svg>
+              CSV
+            </button>
+            <button onclick={() => exportTransactions('pdf')} class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover">
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              PDF
+            </button>
+          </div>
+        {/if}
+      </div>
       <button
         onclick={() => showFilters = !showFilters}
         class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium {showFilters ? 'bg-va-accent/15 border-va-accent text-va-accent' : 'bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted'}"

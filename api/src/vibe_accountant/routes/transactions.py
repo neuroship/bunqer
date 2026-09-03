@@ -1,9 +1,12 @@
 """Transaction management endpoints."""
 
-from datetime import date, timedelta
+import csv
+import io
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -156,8 +159,7 @@ class TransactionListResponse(BaseModel):
     total_amount: Decimal
 
 
-@router.get("", response_model=TransactionListResponse)
-async def list_transactions(
+def filtered_transactions(
     account_id: int | None = Query(None),
     category_id: str | None = Query(None, description="Filter by category ID, or 'none' for uncategorized"),
     query: str | None = Query(None, description="Search in description or counterparty"),
@@ -172,11 +174,9 @@ async def list_transactions(
     tag: str | None = Query(None, description="Filter by tag"),
     sort_by: str | None = Query(None, description="Sort by field: 'amount', 'date'"),
     sort_order: str | None = Query(None, description="Sort order: 'asc' or 'desc'"),
-    limit: int = Query(50, le=1000),
-    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    """List transactions with optional filtering and search."""
+    """Build the filtered and sorted transaction query shared by list and export."""
     q = db.query(Transaction).options(joinedload(Transaction.document))
 
     # Apply filters
@@ -245,10 +245,6 @@ async def list_transactions(
         else:
             q = q.filter(Transaction.tag == tag)
 
-    # Get total count and sum before pagination
-    total_count = q.count()
-    total_amount = q.with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
-
     # Apply sorting
     sort_column = Transaction.transaction_date
     if sort_by == "amount":
@@ -259,12 +255,122 @@ async def list_transactions(
     else:
         q = q.order_by(sort_column.desc())
 
+    return q
+
+
+@router.get("", response_model=TransactionListResponse)
+async def list_transactions(
+    q=Depends(filtered_transactions),
+    limit: int = Query(50, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """List transactions with optional filtering and search."""
+    # Get total count and sum before pagination
+    total_count = q.count()
+    total_amount = q.order_by(None).with_entities(func.coalesce(func.sum(Transaction.amount), 0)).scalar()
+
     # Apply pagination
     transactions = q.offset(offset).limit(limit).all()
 
     logger.info(f"GET /transactions: total={total_count}, returning {len(transactions)} (limit={limit}, offset={offset})")
 
     return TransactionListResponse(items=[_to_response(t) for t in transactions], total=total_count, total_amount=total_amount)
+
+
+def _transactions_csv(transactions: list[Transaction]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Date", "Account", "Counterparty", "Counterparty IBAN", "Description", "Type", "Sub type",
+        "Amount", "Currency", "Balance after", "Category", "Tag", "Document",
+    ])
+    for t in transactions:
+        writer.writerow([
+            t.transaction_date.strftime("%Y-%m-%d %H:%M:%S"),
+            t.account.name,
+            t.counterparty_name,
+            t.counterparty_iban,
+            t.description,
+            t.type,
+            t.sub_type,
+            t.amount,
+            t.currency,
+            t.balance_after,
+            t.category.name if t.category else None,
+            t.tag,
+            t.document.filename if t.document else None,
+        ])
+    # BOM so Excel opens it as UTF-8
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _transactions_pdf(transactions: list[Transaction]) -> bytes:
+    from fpdf import FPDF
+    from fpdf.fonts import FontFace
+
+    fonts_dir = Path(__file__).resolve().parent.parent / "fonts"
+    pdf = FPDF(orientation="landscape", format="A4")
+    pdf.add_font("JetBrainsMono", "", str(fonts_dir / "JetBrainsMono-Regular.ttf"))
+    pdf.add_font("JetBrainsMono", "B", str(fonts_dir / "JetBrainsMono-Bold.ttf"))
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    total = sum(t.amount for t in transactions)
+    pdf.set_font("JetBrainsMono", "B", 14)
+    pdf.cell(0, 8, "Transactions", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("JetBrainsMono", "", 8)
+    pdf.set_text_color(115, 115, 115)
+    pdf.cell(
+        0, 5,
+        f"Exported {datetime.now():%Y-%m-%d %H:%M:%S}   |   "
+        f"{len(transactions)} transactions   |   Sum {total:,.2f}",
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(3)
+
+    pdf.set_font("JetBrainsMono", "", 7)
+    with pdf.table(
+        col_widths=(22, 30, 45, 75, 22, 28, 28, 27),
+        text_align=("LEFT", "LEFT", "LEFT", "LEFT", "LEFT", "RIGHT", "LEFT", "LEFT"),
+        headings_style=FontFace(emphasis="BOLD", fill_color=(235, 235, 235)),
+        borders_layout="HORIZONTAL_LINES",
+        line_height=4,
+        padding=(1, 2),
+    ) as table:
+        table.row(["Date", "Account", "Counterparty", "Description", "Type", "Amount", "Category", "Tag"])
+        for t in transactions:
+            table.row([
+                t.transaction_date.strftime("%Y-%m-%d"),
+                t.account.name,
+                t.counterparty_name or "",
+                t.description or "",
+                " ".join(filter(None, [t.type, t.sub_type])),
+                f"{t.amount:,.2f} {t.currency}",
+                t.category.name if t.category else "",
+                t.tag or "",
+            ])
+
+    return bytes(pdf.output())
+
+
+@router.get("/export")
+async def export_transactions(
+    format: str = Query("csv", pattern="^(csv|pdf)$"),
+    q=Depends(filtered_transactions),
+):
+    """Download every transaction matching the filters as CSV or PDF."""
+    transactions = q.options(joinedload(Transaction.account), joinedload(Transaction.category)).all()
+    logger.info(f"GET /transactions/export: format={format}, rows={len(transactions)}")
+
+    content = _transactions_pdf(transactions) if format == "pdf" else _transactions_csv(transactions)
+    media_type = "application/pdf" if format == "pdf" else "text/csv"
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="transactions_{stamp}.{format}"'},
+    )
 
 
 @router.get("/stats")

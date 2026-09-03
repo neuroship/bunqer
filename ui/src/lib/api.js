@@ -292,7 +292,37 @@ export const transactions = {
   },
   applyRules: (force = false) => request(`/transactions/apply-rules${force ? '?force=true' : ''}`, { method: 'POST' }),
   matchDocuments: () => request('/transactions/match-documents', { method: 'POST' }),
-  matchSuggestions: () => request('/transactions/match-suggestions')
+  matchSuggestions: () => request('/transactions/match-suggestions'),
+  /** Download every transaction matching params as CSV or PDF, named by local extraction time */
+  export: async (format, params = {}) => {
+    const filteredParams = Object.fromEntries(
+      Object.entries({ ...params, format }).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+    )
+    const token = getToken()
+    const response = await fetch(`${API_BASE}/transactions/export?${new URLSearchParams(filteredParams)}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    })
+    if (response.status === 401) {
+      clearAuth()
+      if (onUnauthorizedCallback) onUnauthorizedCallback()
+      throw new Error('Session expired. Please log in again.')
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Export failed' }))
+      throw new Error(error.detail || 'Export failed')
+    }
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
+    const blobUrl = URL.createObjectURL(await response.blob())
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = `transactions_${stamp}.${format}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(blobUrl)
+  }
 }
 
 // Categories
