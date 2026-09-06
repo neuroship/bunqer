@@ -7,9 +7,12 @@
   let show = $state(false)
   let savingRule = $state(false)
   let ruleTargetCategoryId = $state('')
-  let ruleMode = $state('create') // 'create' or 'existing'
   let existingRules = $state([])
   let loadingExistingRules = $state(false)
+  // Prefer adding to an existing rule; only fall back to creating one when the category has none
+  let ruleMode = $derived(
+    ruleTargetCategoryId && !loadingExistingRules && existingRules.length === 0 ? 'create' : 'existing'
+  )
   let selectedExistingRuleId = $state('')
   let newConditions = $state([]) // conditions to append in 'existing' mode
   let ruleForm = $state({
@@ -94,7 +97,6 @@
       priority: 0
     }
     newConditions = conditions.map(c => ({ ...c }))
-    ruleMode = 'create'
     existingRules = []
     selectedExistingRuleId = ''
     ruleTargetCategoryId = transaction.category_id ? String(transaction.category_id) : ''
@@ -112,6 +114,9 @@
     loadingExistingRules = true
     try {
       existingRules = await api.categories.rules.list(parseInt(categoryId))
+      if (existingRules.length === 1) {
+        selectedExistingRuleId = String(existingRules[0].id)
+      }
     } catch (error) {
       existingRules = []
     } finally {
@@ -213,22 +218,6 @@
 
 <Modal bind:show title={ruleMode === 'create' ? 'Create Rule' : 'Add to Existing Rule'} size="xl">
   <div class="space-y-4">
-    <!-- Mode toggle -->
-    <div class="flex rounded-lg border border-va-border overflow-hidden">
-      <button
-        onclick={() => ruleMode = 'create'}
-        class="flex-1 px-4 py-2 text-sm font-medium transition-all {ruleMode === 'create' ? 'bg-va-accent text-white' : 'bg-va-subtle text-va-muted hover:text-va-text'}"
-      >
-        Create New Rule
-      </button>
-      <button
-        onclick={() => ruleMode = 'existing'}
-        class="flex-1 px-4 py-2 text-sm font-medium transition-all {ruleMode === 'existing' ? 'bg-va-accent text-white' : 'bg-va-subtle text-va-muted hover:text-va-text'}"
-      >
-        Add to Existing Rule
-      </button>
-    </div>
-
     <!-- Category selector -->
     <div>
       <span class="block text-sm text-va-muted mb-1">Category <span class="text-va-danger">*</span></span>
@@ -255,8 +244,6 @@
           </div>
         {:else if !ruleTargetCategoryId}
           <p class="text-sm text-va-muted py-2">Select a category first</p>
-        {:else if existingRules.length === 0}
-          <p class="text-sm text-va-muted py-2">No existing rules for this category. Switch to "Create New Rule" instead.</p>
         {:else}
           <select
             bind:value={selectedExistingRuleId}
@@ -363,7 +350,9 @@
         </button>
       </div>
     {:else}
-      <!-- Create new rule form -->
+      <!-- Create new rule form (only shown when the category has no rules yet) -->
+      <p class="text-xs text-va-muted">No rules exist for this category yet, so a new one will be created.</p>
+
       <!-- Rule name -->
       <div>
         <span class="block text-sm text-va-muted mb-1">Rule Name <span class="text-va-danger">*</span></span>
