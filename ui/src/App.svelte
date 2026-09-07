@@ -14,7 +14,14 @@
   import Toast from './lib/components/Toast.svelte'
   import { subscribeToEvents, isAuthenticated, clearAuth, setOnUnauthorized, getUsername, payments } from './lib/api.js'
 
-  let currentPage = $state('transactions')
+  const pages = ['onboarding', 'transactions', 'payments', 'analytics', 'invoices', 'clients', 'categories', 'documents', 'settings']
+
+  function pageFromHash() {
+    const page = window.location.hash.replace(/^#\/?/, '')
+    return pages.includes(page) ? page : 'transactions'
+  }
+
+  let currentPage = $state(pageFromHash())
   let toast = $state({ show: false, message: '', type: 'info' })
   let syncStatus = $state('')
   let authenticated = $state(isAuthenticated())
@@ -26,11 +33,18 @@
 
   function navigate(page) {
     currentPage = page
+    if (window.location.hash !== `#${page}`) {
+      window.location.hash = page
+    }
+  }
+
+  function handleHashChange() {
+    currentPage = pageFromHash()
   }
 
   function handleNavigateToDocument(e) {
     openDocumentId = e.detail.documentId
-    currentPage = 'documents'
+    navigate('documents')
   }
 
   function showToast(message, type = 'info') {
@@ -124,6 +138,7 @@
     window.showToast = showToast
     setOnUnauthorized(handleUnauthorized)
     window.addEventListener('navigate-to-document', handleNavigateToDocument)
+    window.addEventListener('hashchange', handleHashChange)
 
     // Only subscribe to events if authenticated
     if (authenticated) {
@@ -143,6 +158,7 @@
   onDestroy(() => {
     if (unsubscribe) unsubscribe()
     window.removeEventListener('navigate-to-document', handleNavigateToDocument)
+    window.removeEventListener('hashchange', handleHashChange)
   })
 </script>
 
