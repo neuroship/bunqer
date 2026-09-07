@@ -269,7 +269,8 @@ export const setup = {
   backfill: () => request('/setup/backfill', { method: 'POST' }),
   listAccounts: () => request('/setup/accounts'),
   deleteAccount: (id) => request(`/setup/accounts/${id}`, { method: 'DELETE' }),
-  renameAccount: (id, name) => request(`/setup/accounts/${id}`, { method: 'PATCH', body: { name } })
+  renameAccount: (id, name) => request(`/setup/accounts/${id}`, { method: 'PATCH', body: { name } }),
+  teardown: (data) => request('/setup/teardown', { method: 'POST', body: data })
 }
 
 // Transactions

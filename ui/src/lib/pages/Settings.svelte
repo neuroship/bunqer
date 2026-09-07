@@ -20,6 +20,11 @@
   let newPasskeyName = $state('')
   let passkeySupported = $state(false)
 
+  // Danger zone state
+  const TEARDOWN_PHRASE = 'TEARDOWN'
+  let teardownPhrase = $state('')
+  let tearingDown = $state(false)
+
   let form = $state({
     name: '',
     address: '',
@@ -142,6 +147,28 @@
     } finally {
       uploadingLogo = false
       if (fileInput) fileInput.value = ''
+    }
+  }
+
+  async function teardown() {
+    tearingDown = true
+    try {
+      const passkey = await api.passkeys.verify()
+      const result = await api.setup.teardown({ confirmation: teardownPhrase, passkey })
+      teardownPhrase = ''
+      window.showToast?.(
+        `bunq connection removed: ${result.integrations} integration(s), ${result.accounts} account(s), ${result.transactions} transaction(s)`,
+        'success'
+      )
+      window.location.hash = 'onboarding'
+    } catch (error) {
+      if (error.name === 'NotAllowedError') {
+        window.showToast?.('Passkey verification was cancelled.', 'warning')
+      } else {
+        window.showToast?.(error.message || 'Teardown failed', 'error')
+      }
+    } finally {
+      tearingDown = false
     }
   }
 
@@ -320,5 +347,46 @@
         </Card>
       </div>
     {/if}
+
+    <!-- Danger zone -->
+    <div class="mt-4">
+      <Card class="border-va-danger/40">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="icon-[tabler--alert-triangle] w-4 h-4 text-va-danger"></span>
+          <h3 class="text-sm font-medium text-va-danger">Danger Zone</h3>
+        </div>
+        <p class="text-xs text-va-muted mb-3">
+          Tearing down removes every bunq integration (API key), its saved API context, and all accounts and imported transactions.
+          Categories, rules, invoices, clients, documents and passkeys are kept.
+        </p>
+        <p class="text-xs text-va-muted mb-4">
+          bunq offers no way to revoke an API key remotely. Revoke it in the bunq app afterwards.
+        </p>
+
+        <div class="flex items-end gap-2">
+          <div class="flex-1 max-w-xs">
+            <Input
+              label="Type {TEARDOWN_PHRASE} to confirm"
+              bind:value={teardownPhrase}
+              placeholder={TEARDOWN_PHRASE}
+              disabled={tearingDown}
+            />
+          </div>
+          <div class="pb-3">
+            <Button
+              variant="danger"
+              onclick={teardown}
+              loading={tearingDown}
+              disabled={teardownPhrase !== TEARDOWN_PHRASE || !passkeySupported || tearingDown}
+            >
+              {tearingDown ? 'Waiting...' : 'Tear Down bunq Connection'}
+            </Button>
+          </div>
+        </div>
+        {#if !passkeySupported}
+          <p class="text-xs text-va-muted mt-1">A passkey-capable browser is required to confirm this action.</p>
+        {/if}
+      </Card>
+    </div>
   {/if}
 </div>

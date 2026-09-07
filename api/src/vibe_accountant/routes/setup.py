@@ -1,9 +1,13 @@
 """Setup and onboarding endpoints for bunq integration."""
 
+import os
 import threading
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
+from bunq.sdk.context.api_context import ApiContext
+from bunq.sdk.context.bunq_context import BunqContext
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -13,6 +17,7 @@ from ..database import get_db
 from ..logger import logger
 from ..models import Account, AccountCreate, Integration, Transaction
 from .events import broadcast_event
+from .passkeys import PasskeyAssertion, verify_passkey_assertion
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -78,6 +83,74 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
 
     logger.info(f"Deleted account '{account_name}' (ID: {account_id}) and {txn_count} transactions")
     return {"status": "deleted", "account": account_name, "transactions_deleted": txn_count}
+
+
+class TeardownRequest(BaseModel):
+    """Tear down the bunq connection; requires the confirmation phrase and a fresh passkey assertion."""
+
+    confirmation: str
+    passkey: PasskeyAssertion
+
+
+TEARDOWN_PHRASE = "TEARDOWN"
+
+
+@router.post("/teardown")
+def teardown_bunq(payload: TeardownRequest, db: Session = Depends(get_db)):
+    """Remove every bunq integration (API keys), its API context files, and all accounts and transactions.
+
+    bunq has no endpoint to revoke an API key, so the key itself must also be revoked in the bunq app.
+    The active bunq sessions are closed server-side on a best-effort basis before the local state is wiped.
+    """
+    verify_passkey_assertion(db, payload.passkey, "verify")
+    if payload.confirmation != TEARDOWN_PHRASE:
+        raise HTTPException(status_code=400, detail=f"Type {TEARDOWN_PHRASE} to confirm")
+
+    _acquire_sync_lock()
+    try:
+        conf_dir = os.environ.get("BUNQ_CONF_DIR")
+        integrations = db.query(Integration).all()
+
+        # Close the bunq session for each integration that still has a saved context.
+        # Never construct a BunqClient here: without a context file it would register a new installation.
+        if conf_dir:
+            for integration in integrations:
+                conf_file = Path(conf_dir) / f"{integration.name}.conf"
+                if not conf_file.exists():
+                    continue
+                try:
+                    api_context = ApiContext.restore(str(conf_file))
+                    BunqContext.load_api_context(api_context)
+                    api_context.close_session()
+                    logger.info(f"TEARDOWN: closed bunq session for '{integration.name}'")
+                except Exception as e:
+                    logger.warning(f"TEARDOWN: could not close bunq session for '{integration.name}': {e}")
+
+        # Wipe every saved context, including orphans left behind by earlier integration deletes
+        context_files = 0
+        if conf_dir and Path(conf_dir).is_dir():
+            for conf_file in Path(conf_dir).glob("*.conf"):
+                conf_file.unlink()
+                context_files += 1
+
+        # FK order: transactions -> accounts -> integrations
+        transactions = db.query(Transaction).delete()
+        accounts = db.query(Account).delete()
+        integrations_deleted = db.query(Integration).delete()
+        db.commit()
+
+        logger.warning(
+            f"TEARDOWN: removed {integrations_deleted} integrations, {accounts} accounts, "
+            f"{transactions} transactions, {context_files} context files"
+        )
+        return {
+            "integrations": integrations_deleted,
+            "accounts": accounts,
+            "transactions": transactions,
+            "context_files": context_files,
+        }
+    finally:
+        _sync_lock.release()
 
 
 @router.post("/sync")
