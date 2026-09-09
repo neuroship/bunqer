@@ -3,6 +3,7 @@
   import Card from '../components/Card.svelte'
   import Modal from '../components/Modal.svelte'
   import CreateRuleModal from '../components/CreateRuleModal.svelte'
+  import CreateDraftPaymentModal from '../components/CreateDraftPaymentModal.svelte'
   import api from '../api.js'
   import { getPrivacyMode } from '../privacy.svelte.js'
 
@@ -107,6 +108,7 @@
 
   // Create rule modal (shared component)
   let createRuleModal = $state()
+  let createDraftPaymentModal = $state()
 
   // Column configuration
   const STORAGE_KEY = 'transactions-visible-columns'
@@ -1131,6 +1133,13 @@
                       </svg>
                     </button>
                     <button
+                      onclick={() => createDraftPaymentModal.open(transaction)}
+                      class="p-1.5 text-va-muted hover:text-va-accent hover:bg-va-hover rounded-md transition-all"
+                      title="Create draft payment from this transaction"
+                    >
+                      <span class="icon-[tabler--send] w-4 h-4"></span>
+                    </button>
+                    <button
                       onclick={() => viewRawJson(transaction.id)}
                       class="p-1.5 text-va-muted hover:text-va-accent hover:bg-va-hover rounded-md transition-all"
                       title="View raw JSON"
@@ -1252,3 +1261,4 @@
 
 
 <CreateRuleModal bind:this={createRuleModal} categories={filterOptions.categories || []} />
+<CreateDraftPaymentModal bind:this={createDraftPaymentModal} />
