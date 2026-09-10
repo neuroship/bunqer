@@ -109,7 +109,7 @@
     try {
       const full = await api.invoices.get(invoice.id)
       form = {
-        client_id: String(full.client_id),
+        client_id: full.client_id,
         invoice_number: full.invoice_number,
         invoice_date: full.invoice_date,
         due_date: full.due_date,
@@ -139,7 +139,7 @@
       ])
       form = {
         ...form,
-        client_id: String(full.client_id),
+        client_id: full.client_id,
         invoice_number: next.invoice_number,
         notes: full.notes || '',
         items: full.items.length > 0
