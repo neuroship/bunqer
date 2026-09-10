@@ -119,6 +119,21 @@ async def get_next_invoice_number(db: Session = Depends(get_db)):
     return {"invoice_number": f"{prefix}{next_num:03d}"}
 
 
+@router.post("/match-payments")
+async def match_invoice_payments(db: Session = Depends(get_db)):
+    """Mark open invoices as paid when a transaction description references them."""
+    from ..services import match_invoices_to_transactions
+
+    paid = match_invoices_to_transactions(db)
+    numbers = [inv.invoice_number for inv in paid]
+    return {
+        "paid": numbers,
+        "message": f"Marked {len(numbers)} invoice(s) as paid: {', '.join(numbers)}"
+        if numbers
+        else "No matching payments found",
+    }
+
+
 @router.get("", response_model=list[InvoiceResponse])
 async def list_invoices(
     client_id: int | None = Query(None),

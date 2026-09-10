@@ -16,6 +16,7 @@
   let saving = $state(false)
   let editingInvoice = $state(null)
   let downloadingPdf = $state(null)
+  let matching = $state(false)
 
   // Form state
   let form = $state({
@@ -201,6 +202,19 @@
     }
   }
 
+  async function matchPayments() {
+    matching = true
+    try {
+      const result = await api.invoices.matchPayments()
+      await loadInvoices()
+      window.showToast?.(result.message, result.paid.length ? 'success' : 'info')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      matching = false
+    }
+  }
+
   async function downloadPdf(invoice) {
     downloadingPdf = invoice.id
     try {
@@ -295,9 +309,14 @@
 <div>
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
     <h1 class="text-lg font-semibold text-va-text">Invoices</h1>
-    <Button onclick={openCreateModal}>
-      New Invoice
-    </Button>
+    <div class="flex items-center gap-2">
+      <Button variant="secondary" onclick={matchPayments} loading={matching}>
+        Match Payments
+      </Button>
+      <Button onclick={openCreateModal}>
+        New Invoice
+      </Button>
+    </div>
   </div>
 
   <Card>

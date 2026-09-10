@@ -695,6 +695,15 @@ def sync_account_transactions_sync(db, bunq_client: BunqClient, account_id: int)
         except Exception as e:
             log(f"    Warning: Failed to match documents: {e}")
 
+        # Mark invoices as paid when an incoming transaction references them
+        try:
+            from ..services import match_invoices_to_transactions
+            paid_invoices = match_invoices_to_transactions(db)
+            if paid_invoices:
+                log(f"    Marked {len(paid_invoices)} invoice(s) as paid")
+        except Exception as e:
+            log(f"    Warning: Failed to match invoice payments: {e}")
+
         # Verify transactions were saved
         saved_count = db.query(Transaction).filter(Transaction.account_id == account.id).count()
         log(f"    Verification: {saved_count} transactions in DB for this account")
