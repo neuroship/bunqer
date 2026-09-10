@@ -85,3 +85,44 @@ def test_skips_already_paid(db):
 
     _seed(db, "INV-2026-001", status="cancelled")
     assert match_invoices_to_transactions(db) == []
+
+
+def test_matches_by_exact_amount_when_no_reference(db):
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "Bank transfer")
+    paid = match_invoices_to_transactions(db)
+    assert [i.id for i in paid] == [invoice.id]
+    db.refresh(invoice)
+    assert invoice.status == "paid"
+
+
+def test_amount_must_match_exactly(db):
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "Bank transfer", amount="121.01")
+    assert match_invoices_to_transactions(db) == []
+    db.refresh(invoice)
+    assert invoice.status == "sent"
+
+
+def test_one_transaction_pays_one_invoice(db):
+    from vibe_accountant.models import Invoice
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    first = _seed(db, "Bank transfer")
+    second = Invoice(
+        client_id=first.client_id,
+        invoice_number="INV-2026-002",
+        invoice_date=date(2026, 9, 1),
+        due_date=date(2026, 10, 1),
+        status="sent",
+        total_amount=Decimal("121.00"),
+    )
+    db.add(second)
+    db.commit()
+
+    paid = match_invoices_to_transactions(db)
+    assert len(paid) == 1
+    db.refresh(second)
+    assert second.status == "sent"
