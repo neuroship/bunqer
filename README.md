@@ -196,7 +196,7 @@ All keys are entered under **Settings > Auto-Fetch providers** and stored in the
 |----------|---------------|
 | Browserbase | API key (`bb_live_...`) |
 | 1Password | Service Account token with read access to the vault holding vendor logins |
-| LLM | Model in `provider/model` form (default `anthropic/claude-opus-5`) and its API key |
+| LLM | Model in `provider/model` form (default `anthropic/claude-sonnet-5`; must be one of the ids Stagehand accepts, Settings rejects others) and its API key |
 | Google | OAuth client ID + secret with the Gmail API enabled, and the redirect URI `<API_URL>/invoice-sources/gmail/callback` registered on the client |
 
 ## Project Structure

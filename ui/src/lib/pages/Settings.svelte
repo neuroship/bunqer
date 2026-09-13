@@ -48,7 +48,7 @@
   const providerFields = [
     { key: 'browserbase_api_key', label: 'Browserbase API key', secret: true, placeholder: 'bb_live_...' },
     { key: 'onepassword_service_account_token', label: '1Password Service Account token', secret: true, placeholder: 'ops_...' },
-    { key: 'llm_model', label: 'LLM model (Stagehand)', secret: false, placeholder: 'anthropic/claude-opus-5' },
+    { key: 'llm_model', label: 'LLM model (Stagehand)', secret: false, placeholder: 'anthropic/claude-sonnet-5' },
     { key: 'llm_api_key', label: 'LLM API key', secret: true, placeholder: 'sk-ant-...' },
     { key: 'google_client_id', label: 'Google OAuth client ID', secret: false, placeholder: '....apps.googleusercontent.com' },
     { key: 'google_client_secret', label: 'Google OAuth client secret', secret: true, placeholder: 'GOCSPX-...' },

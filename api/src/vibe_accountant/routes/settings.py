@@ -127,15 +127,35 @@ def _normalize_secret(value: str | None) -> str | None:
     return v.strip("\"'") or None
 
 
+def _validate_llm_model(model: str) -> None:
+    """Stagehand only accepts a fixed list of provider/model ids; fail early with a hint."""
+    import re
+
+    from stagehand._generated.models import ModelConfig
+
+    try:
+        ModelConfig(model_name=model)
+    except Exception as e:
+        match = re.search(r"\^anthropic\\/\((.*?)\)\$", str(e))
+        ids = match.group(1).replace("\\", "").split("|") if match else []
+        hint = f" Supported Anthropic ids: {', '.join(ids[-6:])}." if ids else ""
+        raise HTTPException(
+            400, f"LLM model '{model}' is not supported by Stagehand. Use provider/model form.{hint}"
+        )
+
+
 @router.put("/providers")
 async def update_provider_settings_route(data: ProviderSettingsUpdate, db: Session = Depends(get_db)):
     """Update provider settings. Only keys present in the body change; empty string clears."""
-    for key, value in data.model_dump(exclude_unset=True).items():
+    updates = {k: _normalize_secret(v) for k, v in data.model_dump(exclude_unset=True).items()}
+    if updates.get("llm_model"):
+        _validate_llm_model(updates["llm_model"])
+    for key, value in updates.items():
         row = db.query(ProviderSetting).get(key)
         if not row:
             row = ProviderSetting(key=key)
             db.add(row)
-        row.value = _normalize_secret(value)
+        row.value = value
     db.commit()
     logger.info("Updated provider settings")
     return await get_provider_settings_route(db)

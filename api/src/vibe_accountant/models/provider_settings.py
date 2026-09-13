@@ -20,7 +20,7 @@ PROVIDER_KEYS: dict[str, bool] = {
 }
 
 PROVIDER_DEFAULTS: dict[str, str] = {
-    "llm_model": "anthropic/claude-opus-5",
+    "llm_model": "anthropic/claude-sonnet-5",
 }
 
 
