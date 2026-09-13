@@ -15,6 +15,7 @@ from ..logger import logger
 from .onepassword import resolve_login, resolve_totp
 
 MAX_INVOICES = 20
+MAX_LOAD_MORE = 10
 FETCH_JS = """
 (async () => {
   const r = await fetch(%s, { credentials: 'include' });
@@ -354,30 +355,30 @@ async def fetch_website_invoices(
             await _dismiss_overlays(stagehand, log)
             log(f"Invoice page: {await page.url()}")
 
-            window = ""
-            if date_from or date_to:
-                window = f" Only include invoices dated between {date_from or 'the beginning'} and {date_to or 'today'}."
             extract_prompt = (
-                f"List all invoices shown on this page, newest first.{window} For each give the title "
-                "(invoice number, product or period), the invoice date converted to YYYY-MM-DD, the amount, "
-                "and the absolute URL of its PDF if the row links directly to a file (otherwise leave pdf_url empty)."
+                "List every invoice row currently shown on this page, newest first, regardless of date. "
+                "For each give the title (invoice number, product or period), the invoice date converted "
+                "to YYYY-MM-DD, the amount, and the absolute URL of its PDF if the row links directly to a "
+                "file (otherwise leave pdf_url empty)."
             )
 
             # Load older rows until the window start is covered (or nothing more to load).
-            for _ in range(5):
+            rows: list[InvoiceLink] = []
+            for _ in range(MAX_LOAD_MORE):
                 extracted = await stagehand.extract(extract_prompt, InvoiceLinks)
                 rows = extracted.data.invoices
                 dates = [d for d in (_parse_date(r.invoice_date) for r in rows) if d]
-                if not date_from or not dates or min(dates) <= date_from:
+                if not date_from or (dates and min(dates) <= date_from):
                     break
                 more = await stagehand.observe(
                     "a 'show more', 'load more', 'toon meer', 'older invoices' or next-page control for the invoice list"
                 )
                 if not more.data:
+                    log(f"No more rows to load; oldest visible invoice is {min(dates) if dates else 'unknown'}")
                     break
                 await stagehand.act(more.data[0])
                 await _settle(page)
-                log("Loaded more invoice rows")
+                log(f"Loaded more invoice rows (oldest so far {min(dates) if dates else 'unknown'})")
 
             links = [r for r in rows if _in_window(r.invoice_date, date_from, date_to)][:MAX_INVOICES]
             log(f"Found {len(rows)} invoice row(s), {len(links)} in period")
