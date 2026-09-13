@@ -118,6 +118,15 @@ async def get_provider_settings_route(db: Session = Depends(get_db)):
     return out
 
 
+def _normalize_secret(value: str | None) -> str | None:
+    """Trim, and tolerate a pasted `ENV_NAME=value` line or surrounding quotes."""
+    v = (value or "").strip()
+    name, sep, rest = v.partition("=")
+    if sep and name.isupper() and "_" in name and rest:
+        v = rest.strip()
+    return v.strip("\"'") or None
+
+
 @router.put("/providers")
 async def update_provider_settings_route(data: ProviderSettingsUpdate, db: Session = Depends(get_db)):
     """Update provider settings. Only keys present in the body change; empty string clears."""
@@ -126,7 +135,7 @@ async def update_provider_settings_route(data: ProviderSettingsUpdate, db: Sessi
         if not row:
             row = ProviderSetting(key=key)
             db.add(row)
-        row.value = (value or "").strip() or None
+        row.value = _normalize_secret(value)
     db.commit()
     logger.info("Updated provider settings")
     return await get_provider_settings_route(db)
