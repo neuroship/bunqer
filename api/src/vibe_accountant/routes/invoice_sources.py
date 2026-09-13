@@ -68,6 +68,7 @@ async def create_source(data: InvoiceSourceCreate, db: Session = Depends(get_db)
         op_totp_ref=data.op_totp_ref,
         instructions=data.instructions,
         gmail_query=data.gmail_query,
+        collect_description=data.collect_description,
     )
     db.add(src)
     db.commit()
@@ -243,6 +244,23 @@ async def gmail_callback(
     db.commit()
     logger.info(f"Gmail connected for source {src.id} ({email})")
     return RedirectResponse(f"{frontend}?gmail=connected")
+
+
+@router.post("/{source_id}/gmail/preview")
+async def gmail_preview(source_id: int, period: RunRequest, db: Session = Depends(get_db)):
+    """Show the generated Gmail query and the emails a run for this period would collect."""
+    src = db.query(InvoiceSource).get(source_id)
+    if not src or src.kind != SourceKind.GMAIL.value:
+        raise HTTPException(404, "Gmail source not found")
+    if not src.gmail_token:
+        raise HTTPException(400, "Gmail is not connected for this source")
+    providers = get_provider_settings(db)
+    try:
+        return await gmail_fetcher.preview(
+            providers, src.gmail_token, src.collect_description, src.gmail_query, period.date_from, period.date_to
+        )
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/{source_id}/gmail/disconnect", response_model=InvoiceSourceResponse)

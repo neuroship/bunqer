@@ -39,7 +39,8 @@ class InvoiceSource(Base):
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # gmail
-    gmail_query: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    gmail_query: Mapped[str | None] = mapped_column(String(1000), nullable=True)  # advanced override
+    collect_description: Mapped[str | None] = mapped_column(Text, nullable=True)  # plain-language request
     gmail_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     gmail_token: Mapped[str | None] = mapped_column(Text, nullable=True)  # authorized user JSON
 
@@ -92,6 +93,7 @@ class InvoiceSourceCreate(BaseModel):
     op_totp_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
+    collect_description: str | None = None
 
 
 class InvoiceSourceUpdate(BaseModel):
@@ -103,6 +105,7 @@ class InvoiceSourceUpdate(BaseModel):
     op_totp_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
+    collect_description: str | None = None
 
 
 class InvoiceSourceResponse(BaseModel):
@@ -116,6 +119,7 @@ class InvoiceSourceResponse(BaseModel):
     op_totp_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
+    collect_description: str | None = None
     gmail_email: str | None = None
     gmail_connected: bool = False
     last_run_at: datetime | None = None

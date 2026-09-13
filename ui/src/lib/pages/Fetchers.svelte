@@ -22,6 +22,11 @@
   let runDocs = $state([])
   let runDocsLoading = $state(false)
 
+  // Gmail preview modal
+  let previewTarget = $state(null)
+  let previewData = $state(null)
+  let previewLoading = $state(false)
+
   // Run quarter modal (runTarget = a source, or 'all')
   let runTarget = $state(null)
   let runYear = $state(new Date().getFullYear())
@@ -46,7 +51,8 @@
       op_password_ref: '',
       op_totp_ref: '',
       instructions: '',
-      gmail_query: ''
+      gmail_query: '',
+      collect_description: ''
     }
   }
 
@@ -103,7 +109,8 @@
       op_password_ref: src.op_password_ref || '',
       op_totp_ref: src.op_totp_ref || '',
       instructions: src.instructions || '',
-      gmail_query: src.gmail_query || ''
+      gmail_query: src.gmail_query || '',
+      collect_description: src.collect_description || ''
     }
     showModal = true
   }
@@ -111,6 +118,10 @@
   async function saveSource() {
     if (!form.name.trim()) {
       window.showToast?.('Name is required', 'error')
+      return
+    }
+    if (form.kind === 'gmail' && !form.collect_description.trim() && !form.gmail_query.trim()) {
+      window.showToast?.('Describe what to collect', 'error')
       return
     }
     if (form.kind === 'website' && (!form.login_url.trim() || !form.op_username_ref.trim() || !form.op_password_ref.trim())) {
@@ -127,7 +138,8 @@
         op_password_ref: form.op_password_ref.trim() || null,
         op_totp_ref: form.op_totp_ref.trim() || null,
         instructions: form.instructions.trim() || null,
-        gmail_query: form.gmail_query.trim() || null
+        gmail_query: form.gmail_query.trim() || null,
+        collect_description: form.collect_description.trim() || null
       }
       let saved
       if (editing) {
@@ -198,6 +210,34 @@
     } finally {
       starting = false
     }
+  }
+
+  function openPreview(src) {
+    const now = new Date()
+    runYear = now.getFullYear()
+    runQuarter = Math.floor(now.getMonth() / 3) + 1
+    previewData = null
+    previewTarget = src
+  }
+
+  async function loadPreview() {
+    if (!previewTarget) return
+    previewLoading = true
+    previewData = null
+    try {
+      previewData = await api.invoiceSources.gmailPreview(previewTarget.id, quarterRange(runYear, runQuarter))
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      previewLoading = false
+    }
+  }
+
+  async function runFromPreview() {
+    const src = previewTarget
+    previewTarget = null
+    runTarget = src
+    await runNow()
   }
 
   async function connectGmail(src) {
@@ -328,7 +368,7 @@
                 <p class="text-sm font-medium text-va-text truncate">{src.name}</p>
                 <p class="text-xs text-va-muted truncate">
                   {#if src.kind === 'gmail'}
-                    {src.gmail_connected ? src.gmail_email : 'Not connected'}
+                    {src.gmail_connected ? src.gmail_email : 'Not connected'}{src.collect_description ? ` · ${src.collect_description}` : ''}
                   {:else}
                     {src.login_url}
                   {/if}
@@ -351,6 +391,9 @@
                   <span class="icon-[tabler--plug-connected] w-4 h-4"></span>
                 </button>
               {:else if src.kind === 'gmail'}
+                <button onclick={() => openPreview(src)} class="p-1.5 rounded-md text-va-muted hover:text-va-accent hover:bg-va-hover" title="Preview what a quarter would collect">
+                  <span class="icon-[tabler--eye-search] w-4 h-4"></span>
+                </button>
                 <button onclick={() => disconnectGmail(src)} class="p-1.5 rounded-md text-va-muted hover:text-va-danger hover:bg-va-hover" title="Disconnect Gmail">
                   <span class="icon-[tabler--plug-connected-x] w-4 h-4"></span>
                 </button>
@@ -458,8 +501,10 @@
     <p class="text-xs text-va-muted -mt-2 mb-3">Same format as <code>op read</code>: <code>op://Vault/Item/field</code>. Field is the label in the item (often <code>username</code> or <code>email</code>). Resolved via the Service Account, never shown to the AI. A fresh 2FA code is fetched right after the login submit.</p>
     <Input type="textarea" label="Navigation hint (optional)" bind:value={form.instructions} placeholder="Billing > Invoices, then open each PDF" />
   {:else}
-    <Input label="Gmail search query" bind:value={form.gmail_query} placeholder="has:attachment filename:pdf (invoice OR factuur) newer_than:90d" />
-    <p class="text-xs text-va-muted -mt-2 mb-3">Leave empty for the default query. Only PDF attachments are collected.</p>
+    <Input type="textarea" label="What to collect" bind:value={form.collect_description} placeholder="Tesla charging invoices, the monthly Hetzner invoice, Bol.com receipts" required />
+    <p class="text-xs text-va-muted -mt-2 mb-3">Plain language. The AI writes the Gmail search for the chosen quarter, picks the emails that are real invoices, takes PDF attachments and turns attachment-less invoice emails into PDFs. Use Preview on the card to check before collecting.</p>
+    <Input label="Advanced: fixed Gmail query (optional)" bind:value={form.gmail_query} placeholder="from:tesla.com subject:(invoice OR factuur)" />
+    <p class="text-xs text-va-muted -mt-2 mb-3">Overrides the generated search; the quarter dates are still added.</p>
     {#if !editing}
       <p class="text-xs text-va-muted mb-3">After saving you will be redirected to Google to grant read-only access.</p>
     {/if}
@@ -501,6 +546,59 @@
         <span class="icon-[tabler--player-play] w-4 h-4"></span> Collect
       </Button>
     </div>
+  {/if}
+</Modal>
+
+<!-- Gmail preview modal -->
+<Modal show={!!previewTarget} title="Preview: {previewTarget?.name || ''}" size="2xl" onClose={() => previewTarget = null}>
+  {#if previewTarget}
+    <p class="text-xs text-va-muted mb-3">"{previewTarget.collect_description || previewTarget.gmail_query}"</p>
+    <div class="flex items-end gap-3 mb-3">
+      <div>
+        <label class="block text-sm text-va-muted mb-1.5" for="pv-quarter">Quarter</label>
+        <select id="pv-quarter" bind:value={runQuarter} class="select select-sm bg-va-canvas border-va-border text-va-text">
+          {#each [1, 2, 3, 4] as q}<option value={q}>Q{q}</option>{/each}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm text-va-muted mb-1.5" for="pv-year">Year</label>
+        <select id="pv-year" bind:value={runYear} class="select select-sm bg-va-canvas border-va-border text-va-text">
+          {#each yearOptions as y}<option value={y}>{y}</option>{/each}
+        </select>
+      </div>
+      <Button variant="secondary" onclick={loadPreview} loading={previewLoading}>
+        <span class="icon-[tabler--search] w-4 h-4"></span> Search
+      </Button>
+    </div>
+    {#if previewData}
+      <p class="text-xs text-va-muted mb-1">Gmail query</p>
+      <code class="block text-xs text-va-accent bg-va-canvas border border-va-border rounded px-2 py-1.5 mb-3 break-all">{previewData.query}</code>
+      {#if previewData.messages.length === 0}
+        <p class="text-xs text-va-muted mb-3">No emails matched in this quarter. Refine the description or use a fixed query.</p>
+      {:else}
+        <p class="text-xs text-va-muted mb-2">{previewData.messages.filter(m => m.selected).length} of {previewData.messages.length} matched emails judged to be invoices. Checked rows would be collected.</p>
+        <div class="space-y-1 max-h-72 overflow-y-auto mb-3">
+          {#each previewData.messages as m (m.id)}
+            <div class="flex items-start gap-2 p-2 rounded-lg border {m.selected ? 'border-va-success/40 bg-va-success/5' : 'border-va-border opacity-60'}">
+              <span class="{m.selected ? 'icon-[tabler--check]' : 'icon-[tabler--x]'} w-4 h-4 mt-0.5 flex-shrink-0 {m.selected ? 'text-va-success' : 'text-va-muted'}"></span>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-va-text truncate">{m.subject}</p>
+                <p class="text-xs text-va-muted truncate">{m.from} · {m.date}</p>
+              </div>
+              <span class="badge badge-xs {m.pdf_count > 0 ? 'badge-info' : ''} flex-shrink-0" title={m.pdf_count > 0 ? 'PDF attachment' : 'No attachment: email body becomes the PDF'}>
+                {m.pdf_count > 0 ? `${m.pdf_count} PDF` : 'body'}
+              </span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <div class="flex justify-end gap-2">
+        <Button variant="secondary" onclick={() => previewTarget = null}>Close</Button>
+        <Button onclick={runFromPreview} disabled={!previewData.messages.some(m => m.selected)}>
+          <span class="icon-[tabler--player-play] w-4 h-4"></span> Collect Q{runQuarter} {runYear}
+        </Button>
+      </div>
+    {/if}
   {/if}
 </Modal>
 

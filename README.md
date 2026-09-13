@@ -184,7 +184,7 @@ The **Auto-Fetch** tab collects purchase invoices without manual uploads. Fetche
 ### Sources
 
 - **Website** — logs into a vendor portal in a Browserbase cloud browser driven by Stagehand. Credentials come from a 1Password Service Account via two secret references in `op read` format (for example `op://Private/MijnKPN/email` and `op://Private/MijnKPN/password`) and are injected as Stagehand variables, never sent to the LLM. The agent navigates to the billing page, extracts PDF links, and downloads them. Each run links to the Browserbase session replay.
-- **Gmail** — read-only OAuth connection. PDF attachments matching a Gmail search query (default: invoice-like PDFs from the last 90 days) are collected.
+- **Gmail** — read-only OAuth connection. You describe what to collect in plain language ("Tesla charging invoices"); the LLM writes the Gmail search for the quarter, judges which matches are real invoices, takes PDF attachments, and renders attachment-less invoice emails to PDF. A Preview shows the query and the selected emails before collecting. An optional fixed Gmail query overrides the generated one.
 
 Runs are manual only and quarter-based: pick a quarter and year, either for one source or for all sources at once ("Collect quarter", sources run one after another). The API takes any `date_from`/`date_to` (`POST /invoice-sources/{id}/run`, `POST /invoice-sources/run-all`). Gmail applies it as `after:`/`before:`, the website agent is told to set any period filter and only keep invoices dated in the window. Runs are logged with counts of found, new, and matched documents.
 

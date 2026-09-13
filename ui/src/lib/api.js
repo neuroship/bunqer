@@ -509,6 +509,7 @@ export const invoiceSources = {
   deleteRun: (runId) => request(`/invoice-sources/runs/${runId}`, { method: 'DELETE' }),
   cleanupRuns: () => request('/invoice-sources/runs/cleanup', { method: 'DELETE' }),
   gmailAuthUrl: (id) => request(`/invoice-sources/${id}/gmail/auth-url`),
+  gmailPreview: (id, period) => request(`/invoice-sources/${id}/gmail/preview`, { method: 'POST', body: period, timeoutMs: 180_000 }),
   gmailDisconnect: (id) => request(`/invoice-sources/${id}/gmail/disconnect`, { method: 'POST' }),
 }
 

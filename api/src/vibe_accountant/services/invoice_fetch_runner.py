@@ -96,11 +96,12 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
         else:
             if not source.gmail_token:
                 raise RuntimeError("Gmail source is not connected yet")
-            from .gmail_fetcher import fetch_pdf_attachments
+            require_provider(providers, "llm_model", "llm_api_key")
+            from .gmail_fetcher import fetch_invoices
 
-            files = await asyncio.to_thread(
-                fetch_pdf_attachments, source.gmail_token, source.gmail_query, log,
-                run.date_from, run.date_to,
+            files = await fetch_invoices(
+                providers, source.gmail_token, source.collect_description, source.gmail_query,
+                run.date_from, run.date_to, log,
             )
 
         run.documents_found = len(files)
