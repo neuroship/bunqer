@@ -915,14 +915,14 @@
             <tr class="border-b border-va-border">
               {#each allColumns as column}
                 {#if isColumnVisible(column.id)}
-                  {#if column.id === 'amount'}
+                  {#if column.id === 'amount' || column.id === 'date'}
                     <th class="text-{column.align} py-3 px-3 text-sm text-va-muted font-medium">
                       <button
-                        onclick={() => toggleSort('amount')}
-                        class="inline-flex items-center gap-1 hover:text-va-text transition-colors {sortBy === 'amount' ? 'text-va-accent' : ''}"
+                        onclick={() => toggleSort(column.id)}
+                        class="inline-flex items-center gap-1 hover:text-va-text transition-colors {sortBy === column.id ? 'text-va-accent' : ''}"
                       >
                         {column.label}
-                        {#if sortBy === 'amount'}
+                        {#if sortBy === column.id}
                           <svg class="w-3 h-3 transition-transform {sortOrder === 'asc' ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                           </svg>
