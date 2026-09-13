@@ -33,11 +33,40 @@ class InvoiceLink(BaseModel):
     title: str
     invoice_date: str | None = None
     amount: str | None = None
-    pdf_url: str
+    pdf_url: str | None = None
 
 
 class InvoiceLinks(BaseModel):
     invoices: list[InvoiceLink]
+
+
+MONTHS = {
+    m: i + 1
+    for i, names in enumerate([
+        ("jan", "januari", "january"), ("feb", "februari", "february"), ("mrt", "maart", "mar", "march"),
+        ("apr", "april"), ("mei", "may"), ("jun", "juni", "june"), ("jul", "juli", "july"),
+        ("aug", "augustus", "august"), ("sep", "sept", "september"), ("okt", "oktober", "oct", "october"),
+        ("nov", "november"), ("dec", "december"),
+    ])
+    for m in names
+}
+
+
+def _parse_date(raw: str | None) -> date | None:
+    """Accept ISO dates plus '04 september 2026' / '4 sep 2026' style strings."""
+    if not raw:
+        return None
+    text = raw.strip()
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        pass
+    parts = text.replace(",", " ").split()
+    if len(parts) >= 3 and parts[0].isdigit() and parts[2].isdigit():
+        month = MONTHS.get(parts[1].lower().rstrip("."))
+        if month:
+            return date(int(parts[2]), month, int(parts[0]))
+    return None
 
 
 def _same_page(url: str, other: str) -> bool:
@@ -47,11 +76,10 @@ def _same_page(url: str, other: str) -> bool:
 
 def _in_window(raw: str | None, date_from: date | None, date_to: date | None) -> bool:
     """Keep invoices whose date parses and falls in the window; keep undated ones."""
-    if not raw or not (date_from or date_to):
+    if not (date_from or date_to):
         return True
-    try:
-        d = date.fromisoformat(raw.strip()[:10])
-    except ValueError:
+    d = _parse_date(raw)
+    if d is None:
         return True
     return (not date_from or d >= date_from) and (not date_to or d <= date_to)
 
@@ -190,24 +218,42 @@ def _safe_filename(title: str, idx: int) -> str:
     return base[:120] + ("" if base.lower().endswith(".pdf") else ".pdf")
 
 
-def _session_downloads(api_key: str, session_id: str, log: Callable[[str], None]) -> list[tuple[str, bytes]]:
-    """Pull any files the browser downloaded during the session (zip from Browserbase)."""
+def _session_downloads(
+    api_key: str, session_id: str, log: Callable[[str], None], expected: int = 0, attempts: int = 4
+) -> list[tuple[str, bytes]]:
+    """Pull files the browser downloaded during the session (zip from Browserbase).
+
+    Files sync with a delay, so retry until `expected` PDFs are present.
+    """
+    import time
+
+    files: list[tuple[str, bytes]] = []
+    for attempt in range(attempts):
+        files = _read_downloads_zip(api_key, session_id, log)
+        if len(files) >= expected or attempt == attempts - 1:
+            break
+        time.sleep(4)
+    if files:
+        log(f"{len(files)} PDF(s) captured from browser downloads")
+    return files
+
+
+def _read_downloads_zip(api_key: str, session_id: str, log: Callable[[str], None]) -> list[tuple[str, bytes]]:
     try:
         resp = Browserbase(api_key=api_key).sessions.downloads.list(session_id)
         raw = resp.read()
     except Exception as e:  # noqa: BLE001
-        log(f"No session downloads: {e}")
+        log(f"No session downloads yet: {e}")
         return []
     files = []
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            for name in zf.namelist():
-                if name.lower().endswith(".pdf"):
-                    files.append((name.rsplit("/", 1)[-1], zf.read(name)))
+            for name in sorted(zf.namelist()):
+                data = zf.read(name)
+                if data[:4] == b"%PDF":
+                    files.append((name.rsplit("/", 1)[-1], data))
     except zipfile.BadZipFile:
         return []
-    if files:
-        log(f"{len(files)} PDF(s) captured from browser downloads")
     return files
 
 
@@ -304,55 +350,85 @@ async def fetch_website_invoices(
             if instructions:
                 nav += f". Hint: {instructions}"
             await _act(stagehand, log, nav)
-            await page.wait_for_load_state("domcontentloaded")
+            await _settle(page)
             await _dismiss_overlays(stagehand, log)
             log(f"Invoice page: {await page.url()}")
 
             window = ""
             if date_from or date_to:
                 window = f" Only include invoices dated between {date_from or 'the beginning'} and {date_to or 'today'}."
-                await _act(
-                    stagehand, log,
-                    "if the page has a period or year filter for invoices, set it so that invoices"
-                    f" from {date_from or 'the beginning'} to {date_to or 'today'} are shown; otherwise do nothing",
-                )
-            extracted = await stagehand.extract(
-                f"List up to {MAX_INVOICES} invoices shown, newest first.{window} For each give the title "
-                "(invoice number or period), date as YYYY-MM-DD, amount, and the absolute URL of its PDF download link.",
-                InvoiceLinks,
+            extract_prompt = (
+                f"List all invoices shown on this page, newest first.{window} For each give the title "
+                "(invoice number, product or period), the invoice date converted to YYYY-MM-DD, the amount, "
+                "and the absolute URL of its PDF if the row links directly to a file (otherwise leave pdf_url empty)."
             )
-            links = [link for link in extracted.data.invoices if _in_window(link.invoice_date, date_from, date_to)]
-            links = links[:MAX_INVOICES]
-            log(f"Found {len(extracted.data.invoices)} invoice link(s), {len(links)} in period")
 
+            # Load older rows until the window start is covered (or nothing more to load).
+            for _ in range(5):
+                extracted = await stagehand.extract(extract_prompt, InvoiceLinks)
+                rows = extracted.data.invoices
+                dates = [d for d in (_parse_date(r.invoice_date) for r in rows) if d]
+                if not date_from or not dates or min(dates) <= date_from:
+                    break
+                more = await stagehand.observe(
+                    "a 'show more', 'load more', 'toon meer', 'older invoices' or next-page control for the invoice list"
+                )
+                if not more.data:
+                    break
+                await stagehand.act(more.data[0])
+                await _settle(page)
+                log("Loaded more invoice rows")
+
+            links = [r for r in rows if _in_window(r.invoice_date, date_from, date_to)][:MAX_INVOICES]
+            log(f"Found {len(rows)} invoice row(s), {len(links)} in period")
+
+            clicked: list[InvoiceLink] = []
             for idx, link in enumerate(links):
-                origin_ref = f"web:{link.pdf_url}"
-                try:
-                    res = await page.evaluate(FETCH_JS % repr(link.pdf_url))
-                except Exception as e:  # noqa: BLE001
-                    res = {"error": str(e)}
-                if isinstance(res, dict) and res.get("data"):
-                    data = base64.b64decode(res["data"])
-                    if data[:4] == b"%PDF":
-                        results.append((_safe_filename(link.title, idx), data, origin_ref))
-                        log(f"Downloaded {link.title}")
-                        continue
-                    log(f"Not a PDF response for {link.title}, navigating instead")
-                else:
-                    log(f"Direct fetch failed for {link.title}: {res.get('error') if isinstance(res, dict) else res}")
-                # Fallback: navigate so the browser downloads it; picked up from session downloads.
-                try:
-                    await page.goto(link.pdf_url)
-                    await page.wait_for_timeout(1500)
-                except Exception as e:  # noqa: BLE001
-                    log(f"Navigation to {link.pdf_url} failed: {e}")
+                label = f"{link.title} ({link.invoice_date or 'no date'}, {link.amount or 'no amount'})"
+                if link.pdf_url:
+                    origin_ref = f"web:{link.pdf_url}"
+                    try:
+                        res = await page.evaluate(FETCH_JS % repr(link.pdf_url))
+                    except Exception as e:  # noqa: BLE001
+                        res = {"error": str(e)}
+                    if isinstance(res, dict) and res.get("data"):
+                        data = base64.b64decode(res["data"])
+                        if data[:4] == b"%PDF":
+                            results.append((_safe_filename(link.title, idx), data, origin_ref))
+                            log(f"Downloaded {label}")
+                            continue
+                    log(f"Direct fetch failed for {label}, trying a click")
+                ok = await _act(
+                    stagehand, log,
+                    f"click the download (PDF) button or link of the invoice row for {label}",
+                )
+                if not ok:
+                    ok = await _act(stagehand, log, f"click the view/open button of the invoice row for {label}")
+                if ok:
+                    clicked.append(link)
+                    log(f"Clicked download for {label}")
+                    await page.wait_for_timeout(2500)
+
+            if clicked:
+                await page.wait_for_timeout(4000)
+                downloaded = _session_downloads(
+                    providers["browserbase_api_key"], session_id, log, expected=len(clicked)
+                )
+                paired = len(downloaded) == len(clicked)
+                for idx, (name, data) in enumerate(downloaded):
+                    link = clicked[idx] if paired else None
+                    filename = _safe_filename(link.title, idx) if link else _safe_filename(name, idx)
+                    origin_ref = (
+                        f"web:{login_url}:{link.invoice_date}:{link.amount}:{link.title}"
+                        if link else f"web-download:{session_id}:{name}"
+                    )
+                    results.append((filename, data, origin_ref))
+                if not paired:
+                    log(f"{len(downloaded)} file(s) for {len(clicked)} click(s); stored without pairing")
         finally:
             await stagehand.close()
     finally:
         await browser.close()
-
-    for name, data in _session_downloads(providers["browserbase_api_key"], session_id, log):
-        results.append((name, data, f"web-download:{session_id}:{name}"))
 
     logger.info(f"Website fetch done: {len(results)} file(s)")
     return results
