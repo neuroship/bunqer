@@ -4,6 +4,7 @@ import base64
 import io
 import zipfile
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from browserbase import Browserbase
 from pydantic import BaseModel
@@ -36,6 +37,32 @@ class InvoiceLink(BaseModel):
 
 class InvoiceLinks(BaseModel):
     invoices: list[InvoiceLink]
+
+
+def _same_page(url: str, other: str) -> bool:
+    a, b = urlparse(url), urlparse(other)
+    return a.netloc == b.netloc and a.path.rstrip("/") == b.path.rstrip("/")
+
+
+async def _act(stagehand: Stagehand, log: Callable[[str], None], instruction: str, **kwargs) -> bool:
+    """Run an act step and log when Stagehand reports it did not succeed."""
+    result = await stagehand.act(instruction, **kwargs)
+    if not result.data.success:
+        log(f"Step failed: '{instruction}' -> {result.data.message}")
+    return result.data.success
+
+
+async def _dismiss_overlays(stagehand: Stagehand, log: Callable[[str], None]) -> None:
+    """Close a cookie consent or promo dialog if one is covering the page."""
+    found = await stagehand.observe(
+        "the button that accepts all cookies or closes a cookie consent / promotional dialog, "
+        "only if such a dialog is currently visible"
+    )
+    if not found.data:
+        return
+    action = found.data[0]
+    await stagehand.act(action)
+    log(f"Dismissed dialog via: {action.description[:80]}")
 
 
 def _safe_filename(title: str, idx: int) -> str:
@@ -101,29 +128,46 @@ async def fetch_website_invoices(
             page = (await browser.context.pages())[0]
             await page.goto(login_url, wait_until="domcontentloaded")
             log(f"Opened {login_url}")
+            await _dismiss_overlays(stagehand, log)
 
             # Credentials are passed as variables, never sent to the LLM.
-            await stagehand.act(
-                "type %username% into the username or email field",
+            await _act(
+                stagehand, log, "type %username% into the username or email field",
                 variables={"username": username},
             )
-            await stagehand.act(
-                "type %password% into the password field",
+            # Two-step logins ask for the password on the next screen.
+            if not (await stagehand.observe("the password input field")).data:
+                await _act(stagehand, log, "click the next / continue / verder button")
+                await page.wait_for_load_state("domcontentloaded")
+                await _dismiss_overlays(stagehand, log)
+            await _act(
+                stagehand, log, "type %password% into the password field",
                 variables={"password": password},
             )
-            await stagehand.act("click the sign in / log in button")
+            await _act(stagehand, log, "click the sign in / log in / inloggen button")
             await page.wait_for_load_state("domcontentloaded")
+            await page.wait_for_timeout(1500)
             log(f"Submitted login, now at {await page.url()}")
 
-            if op_totp_ref:
+            if op_totp_ref and (await stagehand.observe("the one-time / verification code input field")).data:
                 code = await resolve_totp(providers["onepassword_service_account_token"], op_totp_ref)
-                await stagehand.act(
-                    "type %code% into the one-time / verification code field",
+                await _act(
+                    stagehand, log, "type %code% into the one-time / verification code field",
                     variables={"code": code},
                 )
-                await stagehand.act("click the confirm / verify / continue button")
+                await _act(stagehand, log, "click the confirm / verify / continue button")
                 await page.wait_for_load_state("domcontentloaded")
+                await page.wait_for_timeout(1500)
                 log(f"Submitted 2FA code, now at {await page.url()}")
+            elif op_totp_ref:
+                log("No 2FA prompt shown, skipping code")
+
+            await _dismiss_overlays(stagehand, log)
+            current = await page.url()
+            if _same_page(current, login_url):
+                raise RuntimeError(
+                    f"Login did not complete, still at {current}. Check the session replay."
+                )
 
             nav = "go to the page that lists invoices or billing history"
             if instructions:
