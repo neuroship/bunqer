@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from stagehand import Stagehand, browserbase
 
 from ..logger import logger
-from .onepassword import resolve_login
+from .onepassword import resolve_login, resolve_totp
 
 MAX_INVOICES = 20
 FETCH_JS = """
@@ -70,6 +70,7 @@ async def fetch_website_invoices(
     login_url: str,
     op_username_ref: str,
     op_password_ref: str,
+    op_totp_ref: str | None,
     instructions: str | None,
     log: Callable[[str], None],
     on_session: Callable[[str], None],
@@ -112,7 +113,17 @@ async def fetch_website_invoices(
             )
             await stagehand.act("click the sign in / log in button")
             await page.wait_for_load_state("domcontentloaded")
-            log(f"Logged in, now at {await page.url()}")
+            log(f"Submitted login, now at {await page.url()}")
+
+            if op_totp_ref:
+                code = await resolve_totp(providers["onepassword_service_account_token"], op_totp_ref)
+                await stagehand.act(
+                    "type %code% into the one-time / verification code field",
+                    variables={"code": code},
+                )
+                await stagehand.act("click the confirm / verify / continue button")
+                await page.wait_for_load_state("domcontentloaded")
+                log(f"Submitted 2FA code, now at {await page.url()}")
 
             nav = "go to the page that lists invoices or billing history"
             if instructions:

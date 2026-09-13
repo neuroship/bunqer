@@ -36,6 +36,7 @@
       login_url: '',
       op_username_ref: '',
       op_password_ref: '',
+      op_totp_ref: '',
       instructions: '',
       gmail_query: ''
     }
@@ -92,6 +93,7 @@
       login_url: src.login_url || '',
       op_username_ref: src.op_username_ref || '',
       op_password_ref: src.op_password_ref || '',
+      op_totp_ref: src.op_totp_ref || '',
       instructions: src.instructions || '',
       gmail_query: src.gmail_query || ''
     }
@@ -115,6 +117,7 @@
         login_url: form.login_url.trim() || null,
         op_username_ref: form.op_username_ref.trim() || null,
         op_password_ref: form.op_password_ref.trim() || null,
+        op_totp_ref: form.op_totp_ref.trim() || null,
         instructions: form.instructions.trim() || null,
         gmail_query: form.gmail_query.trim() || null
       }
@@ -347,7 +350,8 @@
     <Input label="Login URL" bind:value={form.login_url} placeholder="https://console.vendor.com/login" required />
     <Input label="1Password username reference" bind:value={form.op_username_ref} placeholder="op://Private/MijnKPN/email" required />
     <Input label="1Password password reference" bind:value={form.op_password_ref} placeholder="op://Private/MijnKPN/password" required />
-    <p class="text-xs text-va-muted -mt-2 mb-3">Same format as <code>op read</code>: <code>op://Vault/Item/field</code>. Field is the label in the item (often <code>username</code> or <code>email</code>). Resolved via the Service Account, never shown to the AI.</p>
+    <Input label="1Password one-time password reference (optional, for 2FA)" bind:value={form.op_totp_ref} placeholder="op://bunqer/MijnKPN/one-time password" />
+    <p class="text-xs text-va-muted -mt-2 mb-3">Same format as <code>op read</code>: <code>op://Vault/Item/field</code>. Field is the label in the item (often <code>username</code> or <code>email</code>). Resolved via the Service Account, never shown to the AI. A fresh 2FA code is fetched right after the login submit.</p>
     <Input type="textarea" label="Navigation hint (optional)" bind:value={form.instructions} placeholder="Billing > Invoices, then open each PDF" />
   {:else}
     <Input label="Gmail search query" bind:value={form.gmail_query} placeholder="has:attachment filename:pdf (invoice OR factuur) newer_than:90d" />

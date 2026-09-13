@@ -70,6 +70,7 @@ async def run_source(source_id: int) -> None:
             files = await fetch_website_invoices(
                 providers=providers, login_url=source.login_url,
                 op_username_ref=source.op_username_ref, op_password_ref=source.op_password_ref,
+                op_totp_ref=source.op_totp_ref,
                 instructions=source.instructions, log=log, on_session=on_session,
             )
         else:
