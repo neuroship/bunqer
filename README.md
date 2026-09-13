@@ -186,7 +186,9 @@ The **Auto-Fetch** tab collects purchase invoices without manual uploads. Fetche
 - **Website** — logs into a vendor portal in a Browserbase cloud browser driven by Stagehand. Credentials come from a 1Password Service Account via two secret references in `op read` format (for example `op://Private/MijnKPN/email` and `op://Private/MijnKPN/password`) and are injected as Stagehand variables, never sent to the LLM. The agent navigates to the billing page, extracts PDF links, and downloads them. Each run links to the Browserbase session replay.
 - **Gmail** — read-only OAuth connection. PDF attachments matching a Gmail search query (default: invoice-like PDFs from the last 90 days) are collected.
 
-Every enabled source runs once a day; any source can also be run on demand. Runs are logged with counts of found, new, and matched documents.
+Every run covers a date window. Manual runs let you pick it; the daily run continues from the last completed run with a week of overlap (90 days on the first run). Gmail applies it as `after:`/`before:`, the website agent is told to set any period filter and only keep invoices dated in the window. Runs are logged with counts of found, new, and matched documents.
+
+Website runs use Stagehand's action cache with self-healing: steps the agent has already solved on a portal are replayed without an LLM call, and only fall back to the model when the page changed. Cache hits show in the run log.
 
 ### Provider setup
 

@@ -499,7 +499,7 @@ export const invoiceSources = {
   create: (data) => request('/invoice-sources', { method: 'POST', body: data }),
   update: (id, data) => request(`/invoice-sources/${id}`, { method: 'PATCH', body: data }),
   delete: (id) => request(`/invoice-sources/${id}`, { method: 'DELETE' }),
-  run: (id) => request(`/invoice-sources/${id}/run`, { method: 'POST' }),
+  run: (id, period = null) => request(`/invoice-sources/${id}/run`, { method: 'POST', body: period || {} }),
   runs: (params = {}) => {
     const query = new URLSearchParams(params).toString()
     return request(`/invoice-sources/runs${query ? `?${query}` : ''}`)

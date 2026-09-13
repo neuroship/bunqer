@@ -2,7 +2,7 @@
 
 import asyncio
 import traceback
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,8 @@ from .document_ingest import ingest_document_bytes
 from .document_matcher import match_documents_to_transactions
 
 FETCH_INTERVAL_SECONDS = 24 * 60 * 60
+DEFAULT_LOOKBACK_DAYS = 90
+OVERLAP_DAYS = 7
 _running: set[int] = set()
 
 
@@ -30,7 +32,22 @@ def is_running(source_id: int) -> bool:
     return source_id in _running
 
 
-async def run_source(source_id: int) -> None:
+def default_period(db: Session, source_id: int) -> tuple[date, date]:
+    """Window for a run without explicit dates: since the last completed run, with overlap."""
+    today = date.today()
+    last = (
+        db.query(InvoiceFetchRun)
+        .filter(InvoiceFetchRun.source_id == source_id, InvoiceFetchRun.status == RunStatus.COMPLETED.value)
+        .order_by(InvoiceFetchRun.started_at.desc())
+        .first()
+    )
+    if last and (last.date_to or last.started_at):
+        anchor = last.date_to or last.started_at.date()
+        return anchor - timedelta(days=OVERLAP_DAYS), today
+    return today - timedelta(days=DEFAULT_LOOKBACK_DAYS), today
+
+
+async def run_source(source_id: int, date_from: date | None = None, date_to: date | None = None) -> None:
     """Execute one source end-to-end. Safe to schedule with asyncio.create_task."""
     if source_id in _running:
         return
@@ -47,9 +64,13 @@ async def run_source(source_id: int) -> None:
         source = db.query(InvoiceSource).get(source_id)
         if not source:
             return
+        d_from, d_to = default_period(db, source_id)
+        run.date_from = date_from or d_from
+        run.date_to = date_to or d_to
         db.add(run)
         db.commit()
         db.refresh(run)
+        log(f"Period {run.date_from} to {run.date_to}")
         broadcast_event("fetch_started", {"source_id": source.id, "source_name": source.name,
                                           "message": f"Fetching invoices from {source.name}..."})
 
@@ -70,7 +91,7 @@ async def run_source(source_id: int) -> None:
             files = await fetch_website_invoices(
                 providers=providers, login_url=source.login_url,
                 op_username_ref=source.op_username_ref, op_password_ref=source.op_password_ref,
-                op_totp_ref=source.op_totp_ref,
+                op_totp_ref=source.op_totp_ref, date_from=run.date_from, date_to=run.date_to,
                 instructions=source.instructions, log=log, on_session=on_session,
             )
         else:
@@ -78,7 +99,10 @@ async def run_source(source_id: int) -> None:
                 raise RuntimeError("Gmail source is not connected yet")
             from .gmail_fetcher import fetch_pdf_attachments
 
-            files = await asyncio.to_thread(fetch_pdf_attachments, source.gmail_token, source.gmail_query, log)
+            files = await asyncio.to_thread(
+                fetch_pdf_attachments, source.gmail_token, source.gmail_query, log,
+                run.date_from, run.date_to,
+            )
 
         run.documents_found = len(files)
         new_ids: list[int] = []

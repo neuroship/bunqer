@@ -20,6 +20,12 @@
   // Run detail modal
   let selectedRun = $state(null)
 
+  // Run period modal
+  let runTarget = $state(null)
+  let runFrom = $state('')
+  let runTo = $state('')
+  let starting = $state(false)
+
   let pollInterval = null
 
   const statusColors = {
@@ -157,14 +163,41 @@
     }
   }
 
-  async function runNow(src) {
+  function isoDate(d) {
+    return d.toISOString().slice(0, 10)
+  }
+
+  function openRun(src) {
+    const last = runs.find(r => r.source_id === src.id && r.status === 'completed')
+    const from = new Date()
+    if (last?.date_to) {
+      from.setTime(new Date(last.date_to).getTime())
+      from.setDate(from.getDate() - 7)
+    } else {
+      from.setDate(from.getDate() - 90)
+    }
+    runFrom = isoDate(from)
+    runTo = isoDate(new Date())
+    runTarget = src
+  }
+
+  async function runNow() {
+    if (!runTarget) return
+    if (runFrom && runTo && runFrom > runTo) {
+      window.showToast?.('From date must be before To date', 'error')
+      return
+    }
+    starting = true
     try {
-      const res = await api.invoiceSources.run(src.id)
+      const res = await api.invoiceSources.run(runTarget.id, { date_from: runFrom || null, date_to: runTo || null })
       window.showToast?.(res.detail, 'info')
-      runningIds = new Set([...runningIds, src.id])
+      runningIds = new Set([...runningIds, runTarget.id])
+      runTarget = null
       if (!pollInterval) pollInterval = setInterval(loadAll, 5000)
     } catch (error) {
       window.showToast?.(error.message, 'error')
+    } finally {
+      starting = false
     }
   }
 
@@ -268,10 +301,10 @@
                 </button>
               {/if}
               <button
-                onclick={() => runNow(src)}
+                onclick={() => openRun(src)}
                 disabled={runningIds.has(src.id) || (src.kind === 'gmail' && !src.gmail_connected)}
                 class="p-1.5 rounded-md text-va-muted hover:text-va-success hover:bg-va-hover disabled:opacity-40"
-                title="Run now"
+                title="Run for a period"
               >
                 <span class="icon-[tabler--player-play] w-4 h-4"></span>
               </button>
@@ -300,6 +333,7 @@
               <tr class="text-xs text-va-muted">
                 <th>Source</th>
                 <th>Started</th>
+                <th>Period</th>
                 <th>Duration</th>
                 <th>Status</th>
                 <th class="text-right">Found</th>
@@ -313,6 +347,7 @@
                 <tr class="text-sm hover:bg-va-hover cursor-pointer" onclick={() => selectedRun = run}>
                   <td class="text-va-text">{run.source_name || run.source_id}</td>
                   <td class="text-va-muted text-xs">{fmtDate(run.started_at)}</td>
+                  <td class="text-va-muted text-xs whitespace-nowrap">{run.date_from || '…'} → {run.date_to || '…'}</td>
                   <td class="text-va-muted text-xs">{duration(run)}</td>
                   <td><span class="badge badge-sm {statusColors[run.status] || ''}">{run.status}</span></td>
                   <td class="text-right">{run.documents_found}</td>
@@ -372,6 +407,21 @@
   </div>
 </Modal>
 
+<!-- Run period modal -->
+<Modal show={!!runTarget} title="Run {runTarget?.name || ''}" size="sm" onClose={() => runTarget = null}>
+  {#if runTarget}
+    <p class="text-xs text-va-muted mb-3">Invoices dated in this period are collected. Default: since the last completed run with a week of overlap, or the last 90 days.</p>
+    <Input type="date" label="From" bind:value={runFrom} />
+    <Input type="date" label="To" bind:value={runTo} />
+    <div class="flex justify-end gap-2 mt-2">
+      <Button variant="secondary" onclick={() => runTarget = null}>Cancel</Button>
+      <Button onclick={runNow} loading={starting}>
+        <span class="icon-[tabler--player-play] w-4 h-4"></span> Run
+      </Button>
+    </div>
+  {/if}
+</Modal>
+
 <!-- Run detail modal -->
 <Modal show={!!selectedRun} title="Run details" size="2xl" onClose={() => selectedRun = null}>
   {#if selectedRun}
@@ -379,6 +429,7 @@
       <span class="badge badge-sm {statusColors[selectedRun.status] || ''}">{selectedRun.status}</span>
       <span>{selectedRun.source_name}</span>
       <span>{fmtDate(selectedRun.started_at)}</span>
+      <span>{selectedRun.date_from || '…'} → {selectedRun.date_to || '…'}</span>
       <span>{duration(selectedRun)}</span>
       {#if selectedRun.browserbase_session_id}
         <a href="https://browserbase.com/sessions/{selectedRun.browserbase_session_id}" target="_blank" rel="noopener" class="text-va-accent hover:underline">Session replay</a>

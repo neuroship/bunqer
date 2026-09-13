@@ -4,6 +4,7 @@ import base64
 import io
 import zipfile
 from collections.abc import Callable
+from datetime import date
 from urllib.parse import urlparse
 
 from browserbase import Browserbase
@@ -44,9 +45,23 @@ def _same_page(url: str, other: str) -> bool:
     return a.netloc == b.netloc and a.path.rstrip("/") == b.path.rstrip("/")
 
 
+def _in_window(raw: str | None, date_from: date | None, date_to: date | None) -> bool:
+    """Keep invoices whose date parses and falls in the window; keep undated ones."""
+    if not raw or not (date_from or date_to):
+        return True
+    try:
+        d = date.fromisoformat(raw.strip()[:10])
+    except ValueError:
+        return True
+    return (not date_from or d >= date_from) and (not date_to or d <= date_to)
+
+
 async def _act(stagehand: Stagehand, log: Callable[[str], None], instruction: str, **kwargs) -> bool:
-    """Run an act step and log when Stagehand reports it did not succeed."""
+    """Run an act step; log failures and cache hits (replayed steps skip the LLM)."""
     result = await stagehand.act(instruction, **kwargs)
+    cache = result.metadata.cache if result.metadata else None
+    if cache and cache.status and str(cache.status).lower().endswith("hit"):
+        log(f"Cached step replayed: '{instruction[:50]}'")
     if not result.data.success:
         log(f"Step failed: '{instruction}' -> {result.data.message}")
     return result.data.success
@@ -99,6 +114,8 @@ async def fetch_website_invoices(
     op_password_ref: str,
     op_totp_ref: str | None,
     instructions: str | None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     log: Callable[[str], None],
     on_session: Callable[[str], None],
 ) -> list[tuple[str, bytes, str]]:
@@ -123,6 +140,8 @@ async def fetch_website_invoices(
                 "You are collecting purchase invoices from a vendor portal. "
                 "Never reveal credentials. Prefer the most recent invoices."
             ),
+            cache=True,
+            self_heal=True,
         )
         try:
             page = (await browser.context.pages())[0]
@@ -172,17 +191,27 @@ async def fetch_website_invoices(
             nav = "go to the page that lists invoices or billing history"
             if instructions:
                 nav += f". Hint: {instructions}"
-            await stagehand.act(nav)
+            await _act(stagehand, log, nav)
             await page.wait_for_load_state("domcontentloaded")
+            await _dismiss_overlays(stagehand, log)
             log(f"Invoice page: {await page.url()}")
 
+            window = ""
+            if date_from or date_to:
+                window = f" Only include invoices dated between {date_from or 'the beginning'} and {date_to or 'today'}."
+                await _act(
+                    stagehand, log,
+                    "if the page has a period or year filter for invoices, set it so that invoices"
+                    f" from {date_from or 'the beginning'} to {date_to or 'today'} are shown; otherwise do nothing",
+                )
             extracted = await stagehand.extract(
-                f"List up to {MAX_INVOICES} invoices shown, newest first. For each give the title "
-                "(invoice number or period), date, amount, and the absolute URL of its PDF download link.",
+                f"List up to {MAX_INVOICES} invoices shown, newest first.{window} For each give the title "
+                "(invoice number or period), date as YYYY-MM-DD, amount, and the absolute URL of its PDF download link.",
                 InvoiceLinks,
             )
-            links = extracted.data.invoices[:MAX_INVOICES]
-            log(f"Found {len(links)} invoice link(s)")
+            links = [link for link in extracted.data.invoices if _in_window(link.invoice_date, date_from, date_to)]
+            links = links[:MAX_INVOICES]
+            log(f"Found {len(extracted.data.invoices)} invoice link(s), {len(links)} in period")
 
             for idx, link in enumerate(links):
                 origin_ref = f"web:{link.pdf_url}"

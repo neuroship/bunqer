@@ -56,6 +56,7 @@ from .invoice_source import (
     InvoiceSourceUpdate,
     InvoiceSourceResponse,
     InvoiceFetchRunResponse,
+    RunRequest,
     SourceKind,
     RunStatus,
 )
@@ -119,6 +120,7 @@ __all__ = [
     "InvoiceSourceUpdate",
     "InvoiceSourceResponse",
     "InvoiceFetchRunResponse",
+    "RunRequest",
     "SourceKind",
     "RunStatus",
 ]

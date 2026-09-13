@@ -2,6 +2,7 @@
 
 import base64
 import json
+from datetime import date, timedelta
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -9,7 +10,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-DEFAULT_QUERY = "has:attachment filename:pdf (invoice OR factuur OR receipt OR bill) newer_than:90d"
+DEFAULT_QUERY = "has:attachment filename:pdf (invoice OR factuur OR receipt OR bill)"
 MAX_MESSAGES = 50
 
 
@@ -58,15 +59,25 @@ def _walk_parts(part: dict):
         yield from _walk_parts(child)
 
 
-def fetch_pdf_attachments(token_json: str, query: str | None, log) -> list[tuple[str, bytes, str]]:
+def fetch_pdf_attachments(
+    token_json: str,
+    query: str | None,
+    log,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[tuple[str, bytes, str]]:
     """Return list of (filename, bytes, origin_ref) for PDF attachments matching query.
 
-    `log` is a callable receiving progress lines. Returns the refreshed token via log side channel
-    is not needed: google-auth refreshes in memory; caller persists creds if desired.
+    The date window is appended as Gmail after:/before: operators (before is exclusive).
+    `log` is a callable receiving progress lines.
     """
     creds = _credentials(token_json)
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
     q = query or DEFAULT_QUERY
+    if date_from:
+        q += f" after:{date_from:%Y/%m/%d}"
+    if date_to:
+        q += f" before:{date_to + timedelta(days=1):%Y/%m/%d}"
     log(f"Gmail search: {q}")
 
     resp = service.users().messages().list(userId="me", q=q, maxResults=MAX_MESSAGES).execute()

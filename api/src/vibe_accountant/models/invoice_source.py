@@ -1,10 +1,10 @@
 """Invoice sources (websites / Gmail) and their fetch runs."""
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -67,6 +67,8 @@ class InvoiceFetchRun(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=RunStatus.RUNNING.value)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    date_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    date_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     documents_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     documents_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     documents_matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -124,6 +126,13 @@ class InvoiceSourceResponse(BaseModel):
         from_attributes = True
 
 
+class RunRequest(BaseModel):
+    """Optional period for a manual run. Defaults are computed by the runner."""
+
+    date_from: date | None = None
+    date_to: date | None = None
+
+
 class InvoiceFetchRunResponse(BaseModel):
     id: int
     source_id: int
@@ -131,6 +140,8 @@ class InvoiceFetchRunResponse(BaseModel):
     status: str
     started_at: datetime
     finished_at: datetime | None = None
+    date_from: date | None = None
+    date_to: date | None = None
     documents_found: int
     documents_new: int
     documents_matched: int

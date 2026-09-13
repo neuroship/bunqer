@@ -18,6 +18,7 @@ from ..models import (
     InvoiceSourceCreate,
     InvoiceSourceResponse,
     InvoiceSourceUpdate,
+    RunRequest,
     SourceKind,
     get_provider_settings,
     require_provider,
@@ -95,13 +96,18 @@ async def delete_source(source_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{source_id}/run")
-async def trigger_run(source_id: int, db: Session = Depends(get_db)):
+async def trigger_run(
+    source_id: int, period: RunRequest | None = None, db: Session = Depends(get_db)
+):
     src = db.query(InvoiceSource).get(source_id)
     if not src:
         raise HTTPException(404, "Source not found")
     if is_running(source_id):
         raise HTTPException(409, "This source is already running")
-    asyncio.create_task(run_source(source_id))
+    period = period or RunRequest()
+    if period.date_from and period.date_to and period.date_from > period.date_to:
+        raise HTTPException(400, "date_from must be on or before date_to")
+    asyncio.create_task(run_source(source_id, period.date_from, period.date_to))
     return {"detail": f"Fetch started for {src.name}"}
 
 
