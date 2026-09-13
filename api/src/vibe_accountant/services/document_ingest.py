@@ -16,6 +16,7 @@ def ingest_document_bytes(
     doc_type: str,
     source_id: int | None = None,
     origin_ref: str | None = None,
+    run_id: int | None = None,
 ) -> tuple[Document, bool]:
     """Store bytes as a new Document. Returns (document, created).
 
@@ -37,6 +38,7 @@ def ingest_document_bytes(
         status=DocumentStatus.PENDING.value,
         source_id=source_id,
         origin_ref=origin_ref,
+        run_id=run_id,
     )
     db.add(doc)
     db.commit()

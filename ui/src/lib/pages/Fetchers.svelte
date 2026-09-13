@@ -19,6 +19,8 @@
 
   // Run detail modal
   let selectedRun = $state(null)
+  let runDocs = $state([])
+  let runDocsLoading = $state(false)
 
   // Run period modal
   let runTarget = $state(null)
@@ -219,6 +221,36 @@
     }
   }
 
+  async function openRunDetail(run) {
+    selectedRun = run
+    runDocs = []
+    runDocsLoading = true
+    try {
+      runDocs = await api.invoiceSources.runDocuments(run.id)
+    } catch (error) {
+      console.error('Failed to load run documents:', error)
+    } finally {
+      runDocsLoading = false
+    }
+  }
+
+  async function openDocument(doc) {
+    try {
+      const { url } = await api.documents.getViewUrl(doc.id)
+      window.open(url, '_blank', 'noopener')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
+  function showInDocuments(doc) {
+    window.dispatchEvent(new CustomEvent('navigate-to-document', { detail: { documentId: doc.id } }))
+  }
+
+  function fmtAmount(v) {
+    return v == null ? '' : new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(v)
+  }
+
   function fmtDate(d) {
     return d ? new Date(d).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' }) : '—'
   }
@@ -344,7 +376,7 @@
             </thead>
             <tbody>
               {#each runs as run (run.id)}
-                <tr class="text-sm hover:bg-va-hover cursor-pointer" onclick={() => selectedRun = run}>
+                <tr class="text-sm hover:bg-va-hover cursor-pointer" onclick={() => openRunDetail(run)}>
                   <td class="text-va-text">{run.source_name || run.source_id}</td>
                   <td class="text-va-muted text-xs">{fmtDate(run.started_at)}</td>
                   <td class="text-va-muted text-xs whitespace-nowrap">{run.date_from || '…'} → {run.date_to || '…'}</td>
@@ -437,6 +469,41 @@
     </div>
     {#if selectedRun.error}
       <div class="text-xs text-va-danger bg-va-danger/10 border border-va-danger/30 rounded-lg p-3 mb-3 whitespace-pre-wrap">{selectedRun.error}</div>
+    {/if}
+
+    <h4 class="text-sm font-medium text-va-text mb-2">Fetched invoices</h4>
+    {#if runDocsLoading}
+      <div class="flex items-center gap-2 text-xs text-va-muted mb-3">
+        <div class="w-4 h-4 border-2 border-va-accent border-t-transparent rounded-full animate-spin"></div> Loading…
+      </div>
+    {:else if runDocs.length === 0}
+      <p class="text-xs text-va-muted mb-3">No documents were stored by this run.</p>
+    {:else}
+      <div class="space-y-1.5 mb-4">
+        {#each runDocs as doc (doc.id)}
+          <div class="flex items-center justify-between gap-3 p-2.5 bg-va-canvas rounded-lg border border-va-border">
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="icon-[tabler--file-type-pdf] w-5 h-5 text-va-danger flex-shrink-0"></span>
+              <div class="min-w-0">
+                <p class="text-sm text-va-text truncate">{doc.vendor_name || doc.filename}</p>
+                <p class="text-xs text-va-muted truncate">
+                  {doc.invoice_number ? `#${doc.invoice_number} · ` : ''}{doc.invoice_date || ''}{doc.total_amount != null ? ` · ${fmtAmount(doc.total_amount)}` : ''}
+                  {#if doc.status !== 'completed'}<span class="badge badge-xs {statusColors[doc.status] || ''} ml-1">{doc.status}</span>{/if}
+                  {#if doc.matched_transactions?.length}<span class="badge badge-xs badge-success ml-1">matched</span>{/if}
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button onclick={() => openDocument(doc)} class="p-1.5 rounded-md text-va-muted hover:text-va-accent hover:bg-va-hover" title="Open / download PDF">
+                <span class="icon-[tabler--download] w-4 h-4"></span>
+              </button>
+              <button onclick={() => showInDocuments(doc)} class="p-1.5 rounded-md text-va-muted hover:text-va-text hover:bg-va-hover" title="Show in Documents">
+                <span class="icon-[tabler--external-link] w-4 h-4"></span>
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
     {/if}
     <pre class="text-xs text-va-muted bg-va-canvas border border-va-border rounded-lg p-3 overflow-x-auto max-h-96 whitespace-pre-wrap">{selectedRun.log || 'No log output.'}</pre>
   {/if}

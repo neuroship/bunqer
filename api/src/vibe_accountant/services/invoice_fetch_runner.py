@@ -111,10 +111,13 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
                 continue
             doc, created = ingest_document_bytes(
                 db, data, filename, "application/pdf", "purchase_invoice",
-                source_id=source.id, origin_ref=origin_ref,
+                source_id=source.id, origin_ref=origin_ref, run_id=run.id,
             )
             if created:
                 new_ids.append(doc.id)
+            elif doc.run_id is None:
+                doc.run_id = run.id  # already known file, still attribute it to this run
+                db.commit()
         run.documents_new = len(new_ids)
         log(f"{len(new_ids)} new document(s) stored")
 

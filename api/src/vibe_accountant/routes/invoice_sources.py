@@ -6,12 +6,14 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
 from ..database import get_db
 from ..logger import logger
 from ..models import (
+    Document,
+    DocumentResponse,
     InvoiceFetchRun,
     InvoiceFetchRunResponse,
     InvoiceSource,
@@ -120,6 +122,21 @@ async def list_runs(
         q = q.filter(InvoiceFetchRun.source_id == source_id)
     runs = q.order_by(InvoiceFetchRun.started_at.desc()).limit(limit).all()
     return [_run_to_response(r) for r in runs]
+
+
+@router.get("/runs/{run_id}/documents", response_model=list[DocumentResponse])
+async def run_documents(run_id: int, db: Session = Depends(get_db)):
+    """Documents collected by one fetch run."""
+    from .documents import _doc_to_response
+
+    docs = (
+        db.query(Document)
+        .options(selectinload(Document.transactions))
+        .filter(Document.run_id == run_id)
+        .order_by(Document.invoice_date.desc().nullslast(), Document.id.desc())
+        .all()
+    )
+    return [_doc_to_response(d) for d in docs]
 
 
 # --- Gmail OAuth ---

@@ -62,6 +62,9 @@ class Document(Base):
         Integer, ForeignKey("invoice_sources.id", ondelete="SET NULL"), nullable=True
     )
     origin_ref: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
+    run_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("invoice_fetch_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -113,6 +116,7 @@ class DocumentResponse(BaseModel):
     error_message: str | None = None
     source_id: int | None = None
     origin_ref: str | None = None
+    run_id: int | None = None
     matched_transactions: list[MatchedTransactionInfo] = []
     created_at: datetime
     updated_at: datetime

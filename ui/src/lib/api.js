@@ -504,6 +504,7 @@ export const invoiceSources = {
     const query = new URLSearchParams(params).toString()
     return request(`/invoice-sources/runs${query ? `?${query}` : ''}`)
   },
+  runDocuments: (runId) => request(`/invoice-sources/runs/${runId}/documents`),
   gmailAuthUrl: (id) => request(`/invoice-sources/${id}/gmail/auth-url`),
   gmailDisconnect: (id) => request(`/invoice-sources/${id}/gmail/disconnect`, { method: 'POST' }),
 }
