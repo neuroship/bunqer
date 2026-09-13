@@ -52,8 +52,20 @@
     { key: 'llm_api_key', label: 'LLM API key', secret: true, placeholder: 'sk-ant-...' },
     { key: 'google_client_id', label: 'Google OAuth client ID', secret: false, placeholder: '....apps.googleusercontent.com' },
     { key: 'google_client_secret', label: 'Google OAuth client secret', secret: true, placeholder: 'GOCSPX-...' },
-    { key: 'google_redirect_uri', label: 'Google redirect URI', secret: false, placeholder: `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/invoice-sources/gmail/callback` }
   ]
+  // Fixed by where the API is reachable; Google must whitelist exactly this URL.
+  const GMAIL_REDIRECT_URI = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/invoice-sources/gmail/callback`
+  let redirectCopied = $state(false)
+
+  async function copyRedirectUri() {
+    try {
+      await navigator.clipboard.writeText(GMAIL_REDIRECT_URI)
+      redirectCopied = true
+      setTimeout(() => redirectCopied = false, 2000)
+    } catch {
+      window.showToast?.('Copy failed, select the text manually', 'error')
+    }
+  }
   let providers = $state({})
   let providerForm = $state({})
   let savingProviders = $state(false)
@@ -73,7 +85,7 @@
     savingProviders = true
     try {
       // Secrets: only send when the user typed something (blank keeps the stored value)
-      const body = {}
+      const body = { google_redirect_uri: GMAIL_REDIRECT_URI }
       for (const { key, secret } of providerFields) {
         const v = providerForm[key] ?? ''
         if (!secret || v.trim()) body[key] = v
@@ -370,8 +382,25 @@
             </div>
           {/each}
         </div>
+        <div class="rounded-lg border border-va-border bg-va-canvas p-3 mb-3">
+          <p class="text-sm text-va-text mb-1">Gmail redirect URI</p>
+          <p class="text-xs text-va-muted mb-2">Google sends the user back to this exact URL after consent. Copy it into the OAuth client on the Google side; it is saved automatically.</p>
+          <div class="flex items-center gap-2">
+            <code class="text-xs text-va-accent bg-va-subtle border border-va-border rounded px-2 py-1.5 flex-1 truncate select-all">{GMAIL_REDIRECT_URI}</code>
+            <button onclick={copyRedirectUri} class="btn btn-sm btn-secondary" title="Copy">
+              <span class="{redirectCopied ? 'icon-[tabler--check]' : 'icon-[tabler--copy]'} w-4 h-4"></span>
+              {redirectCopied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <ol class="text-xs text-va-muted mt-3 space-y-1 list-decimal list-inside">
+            <li>Google Cloud Console → APIs &amp; Services → Library → enable <strong>Gmail API</strong>.</li>
+            <li>OAuth consent screen → External, add your own Google account as a test user, scope <code>gmail.readonly</code>.</li>
+            <li>Credentials → Create credentials → OAuth client ID → type <strong>Web application</strong>.</li>
+            <li>Under <strong>Authorized redirect URIs</strong> paste the URL above, exactly.</li>
+            <li>Copy the client ID and client secret into the fields above and save.</li>
+          </ol>
+        </div>
         <p class="text-xs text-va-muted mb-3">
-          Register the redirect URI above in your Google Cloud OAuth client (Gmail API enabled, scope <code>gmail.readonly</code>).
           The 1Password Service Account needs read access to the vault holding vendor logins.
         </p>
         <div class="flex justify-end pt-3 border-t border-va-border">
