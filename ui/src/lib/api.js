@@ -505,6 +505,8 @@ export const invoiceSources = {
     return request(`/invoice-sources/runs${query ? `?${query}` : ''}`)
   },
   runDocuments: (runId) => request(`/invoice-sources/runs/${runId}/documents`),
+  deleteRun: (runId) => request(`/invoice-sources/runs/${runId}`, { method: 'DELETE' }),
+  cleanupRuns: () => request('/invoice-sources/runs/cleanup', { method: 'DELETE' }),
   gmailAuthUrl: (id) => request(`/invoice-sources/${id}/gmail/auth-url`),
   gmailDisconnect: (id) => request(`/invoice-sources/${id}/gmail/disconnect`, { method: 'POST' }),
 }

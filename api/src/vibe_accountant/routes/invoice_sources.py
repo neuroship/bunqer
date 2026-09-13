@@ -21,6 +21,7 @@ from ..models import (
     InvoiceSourceResponse,
     InvoiceSourceUpdate,
     RunRequest,
+    RunStatus,
     SourceKind,
     get_provider_settings,
     require_provider,
@@ -122,6 +123,35 @@ async def list_runs(
         q = q.filter(InvoiceFetchRun.source_id == source_id)
     runs = q.order_by(InvoiceFetchRun.started_at.desc()).limit(limit).all()
     return [_run_to_response(r) for r in runs]
+
+
+@router.delete("/runs/cleanup")
+async def cleanup_runs(db: Session = Depends(get_db)):
+    """Delete finished runs that failed or stored no documents."""
+    runs = (
+        db.query(InvoiceFetchRun)
+        .filter(InvoiceFetchRun.status != RunStatus.RUNNING.value)
+        .filter((InvoiceFetchRun.status == RunStatus.FAILED.value) | (InvoiceFetchRun.documents_new == 0))
+        .all()
+    )
+    doomed = [r for r in runs if not is_running(r.source_id) or r.status != RunStatus.RUNNING.value]
+    for r in doomed:
+        db.delete(r)
+    db.commit()
+    return {"deleted": len(doomed)}
+
+
+@router.delete("/runs/{run_id}")
+async def delete_run(run_id: int, db: Session = Depends(get_db)):
+    """Delete one finished run. Its documents stay (their run link is cleared)."""
+    run = db.query(InvoiceFetchRun).get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run.status == RunStatus.RUNNING.value:
+        raise HTTPException(409, "Run is still in progress")
+    db.delete(run)
+    db.commit()
+    return {"detail": "Run deleted"}
 
 
 @router.get("/runs/{run_id}/documents", response_model=list[DocumentResponse])

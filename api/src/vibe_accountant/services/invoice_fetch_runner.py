@@ -22,7 +22,6 @@ from ..routes.events import broadcast_event
 from .document_ingest import ingest_document_bytes
 from .document_matcher import match_documents_to_transactions
 
-FETCH_INTERVAL_SECONDS = 24 * 60 * 60
 DEFAULT_LOOKBACK_DAYS = 90
 OVERLAP_DAYS = 7
 _running: set[int] = set()
@@ -173,37 +172,11 @@ def _mark_interrupted_runs(db: Session) -> None:
         logger.warning(f"Marked {len(stale)} interrupted fetch run(s) as failed")
 
 
-def _due(db: Session, source_id: int) -> bool:
-    """A source is due when it has not been run in the last interval."""
-    last = (
-        db.query(InvoiceFetchRun)
-        .filter(InvoiceFetchRun.source_id == source_id)
-        .order_by(InvoiceFetchRun.started_at.desc())
-        .first()
-    )
-    return not last or (datetime.now() - last.started_at).total_seconds() >= FETCH_INTERVAL_SECONDS - 3600
-
-
-async def periodic_fetch() -> None:
-    """Run every enabled source once a day; restarts do not trigger extra runs."""
-    await asyncio.sleep(30)
+async def close_interrupted_runs() -> None:
+    """On startup, close runs that a restart left in 'running'. No scheduled runs: all manual."""
+    await asyncio.sleep(5)
     db = SessionLocal()
     try:
         _mark_interrupted_runs(db)
     finally:
         db.close()
-    while True:
-        db = SessionLocal()
-        try:
-            ids = [
-                s.id for s in db.query(InvoiceSource).filter(InvoiceSource.enabled.is_(True)).all()
-                if _due(db, s.id)
-            ]
-        finally:
-            db.close()
-        for sid in ids:
-            try:
-                await run_source(sid)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Scheduled fetch failed for source {sid}: {e}")
-        await asyncio.sleep(3600)

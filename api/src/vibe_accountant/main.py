@@ -108,8 +108,8 @@ async def startup_event():
     from .services.approval_watcher import watch_pending_approvals
     asyncio.create_task(watch_pending_approvals())
 
-    from .services.invoice_fetch_runner import periodic_fetch
-    asyncio.create_task(periodic_fetch())
+    from .services.invoice_fetch_runner import close_interrupted_runs
+    asyncio.create_task(close_interrupted_runs())
 
 
 @app.on_event("shutdown")

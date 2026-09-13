@@ -156,15 +156,6 @@
     }
   }
 
-  async function toggleEnabled(src) {
-    try {
-      await api.invoiceSources.update(src.id, { enabled: !src.enabled })
-      await loadAll()
-    } catch (error) {
-      window.showToast?.(error.message, 'error')
-    }
-  }
-
   function isoDate(d) {
     return d.toISOString().slice(0, 10)
   }
@@ -247,6 +238,27 @@
     window.dispatchEvent(new CustomEvent('navigate-to-document', { detail: { documentId: doc.id } }))
   }
 
+  async function deleteRun(run) {
+    try {
+      await api.invoiceSources.deleteRun(run.id)
+      if (selectedRun?.id === run.id) selectedRun = null
+      await loadAll()
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
+  async function cleanupRuns() {
+    if (!confirm('Delete all failed runs and runs that stored no documents?')) return
+    try {
+      const res = await api.invoiceSources.cleanupRuns()
+      window.showToast?.(`Deleted ${res.deleted} run(s)`, 'success')
+      await loadAll()
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
   function fmtAmount(v) {
     return v == null ? '' : new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(v)
   }
@@ -266,7 +278,7 @@
   <div class="flex items-center justify-between mb-4">
     <div>
       <h2 class="text-lg font-semibold text-va-text">Auto-Fetch</h2>
-      <p class="text-xs text-va-muted mt-0.5">Collect purchase invoices from vendor portals and Gmail, then match them to transactions. Runs daily.</p>
+      <p class="text-xs text-va-muted mt-0.5">Collect purchase invoices from vendor portals and Gmail, then match them to transactions. Runs only when you press play.</p>
     </div>
     <div class="flex items-center gap-2">
       <Button variant="secondary" onclick={() => openCreate('gmail')}>
@@ -295,7 +307,7 @@
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
       {#each sources as src (src.id)}
-        <Card class={src.enabled ? '' : 'opacity-60'}>
+        <Card>
           <div class="flex items-start justify-between gap-3">
             <div class="flex items-start gap-3 min-w-0">
               <div class="w-8 h-8 rounded-lg bg-va-accent/15 flex items-center justify-center flex-shrink-0">
@@ -340,9 +352,6 @@
               >
                 <span class="icon-[tabler--player-play] w-4 h-4"></span>
               </button>
-              <button onclick={() => toggleEnabled(src)} class="p-1.5 rounded-md text-va-muted hover:text-va-text hover:bg-va-hover" title={src.enabled ? 'Disable' : 'Enable'}>
-                <span class="{src.enabled ? 'icon-[tabler--toggle-right]' : 'icon-[tabler--toggle-left]'} w-4 h-4"></span>
-              </button>
               <button onclick={() => openEdit(src)} class="p-1.5 rounded-md text-va-muted hover:text-va-text hover:bg-va-hover" title="Edit">
                 <span class="icon-[tabler--pencil] w-4 h-4"></span>
               </button>
@@ -355,7 +364,15 @@
       {/each}
     </div>
 
-    <Card title="Recent runs">
+    <Card>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-semibold text-va-text">Recent runs</h2>
+        {#if runs.some(r => r.status === 'failed' || (r.status !== 'running' && r.documents_new === 0))}
+          <button onclick={cleanupRuns} class="text-xs text-va-muted hover:text-va-danger flex items-center gap-1" title="Delete failed runs and runs without documents">
+            <span class="icon-[tabler--trash] w-3.5 h-3.5"></span> Clear failed & empty
+          </button>
+        {/if}
+      </div>
       {#if runs.length === 0}
         <p class="text-xs text-va-muted">No runs yet.</p>
       {:else}
@@ -385,7 +402,16 @@
                   <td class="text-right">{run.documents_found}</td>
                   <td class="text-right {run.documents_new > 0 ? 'text-va-success' : ''}">{run.documents_new}</td>
                   <td class="text-right {run.documents_matched > 0 ? 'text-va-success' : ''}">{run.documents_matched}</td>
-                  <td class="text-right">
+                  <td class="text-right whitespace-nowrap">
+                    {#if run.status !== 'running'}
+                      <button
+                        onclick={(e) => { e.stopPropagation(); deleteRun(run) }}
+                        class="text-va-muted hover:text-va-danger mr-1"
+                        title="Delete run"
+                      >
+                        <span class="icon-[tabler--trash] w-4 h-4"></span>
+                      </button>
+                    {/if}
                     {#if run.browserbase_session_id}
                       <a
                         href="https://browserbase.com/sessions/{run.browserbase_session_id}"
@@ -428,11 +454,7 @@
     {/if}
   {/if}
 
-  <label class="flex items-center gap-2 text-sm text-va-muted mb-4">
-    <input type="checkbox" bind:checked={form.enabled} class="checkbox checkbox-sm" />
-    Enabled (included in the daily run)
-  </label>
-
+  <div class="mb-2"></div>
   <div class="flex justify-end gap-2">
     <Button variant="secondary" onclick={() => showModal = false}>Cancel</Button>
     <Button onclick={saveSource} loading={saving}>{editing ? 'Save' : (form.kind === 'gmail' ? 'Save & connect' : 'Add')}</Button>
@@ -442,7 +464,7 @@
 <!-- Run period modal -->
 <Modal show={!!runTarget} title="Run {runTarget?.name || ''}" size="sm" onClose={() => runTarget = null}>
   {#if runTarget}
-    <p class="text-xs text-va-muted mb-3">Invoices dated in this period are collected. Default: since the last completed run with a week of overlap, or the last 90 days.</p>
+    <p class="text-xs text-va-muted mb-3">Invoices dated in this period are collected. Default: since the last completed run with a week of overlap, or the last 90 days. Nothing runs on a schedule.</p>
     <Input type="date" label="From" bind:value={runFrom} />
     <Input type="date" label="To" bind:value={runTo} />
     <div class="flex justify-end gap-2 mt-2">
