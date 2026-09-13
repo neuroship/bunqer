@@ -67,13 +67,95 @@ async def _act(stagehand: Stagehand, log: Callable[[str], None], instruction: st
     return result.data.success
 
 
+UNHIDE_JS = """
+(() => {
+  let fixed = 0;
+  for (const el of document.querySelectorAll('input, button, a, select, textarea')) {
+    const r = el.getBoundingClientRect();
+    if (!el.offsetParent || r.width === 0 || r.height === 0) continue;
+    for (let n = el; n; n = n.parentElement) {
+      if (n.getAttribute && n.getAttribute('aria-hidden') === 'true') { n.removeAttribute('aria-hidden'); fixed++; }
+      if (n.hasAttribute && n.hasAttribute('inert')) { n.removeAttribute('inert'); fixed++; }
+    }
+  }
+  return fixed;
+})()
+"""
+
+FILL_JS = """
+(({ kind, value }) => {
+  const visible = (el) => el.offsetParent && el.getBoundingClientRect().width > 0;
+  const sel = {
+    username: 'input[type=email], input[autocomplete=username], input[autocomplete=email], '
+      + 'input[type=text][name*=user i], input[type=text][name*=mail i], input[type=text][id*=user i], '
+      + 'input[type=text][id*=mail i], input[type=tel], input[type=text]',
+    password: 'input[type=password]',
+    code: 'input[autocomplete=one-time-code], input[inputmode=numeric], input[name*=code i], '
+      + 'input[id*=code i], input[name*=otp i], input[id*=otp i], input[type=tel], input[type=text]',
+  }[kind];
+  const el = [...document.querySelectorAll(sel)].find(visible);
+  if (!el) return null;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  el.focus();
+  setter.call(el, value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return el.id || el.name || el.type;
+})
+"""
+
+SUBMIT_JS = """
+(() => {
+  const visible = (el) => el.offsetParent && el.getBoundingClientRect().width > 0;
+  const active = document.activeElement;
+  const form = active && active.form;
+  const btn = [...document.querySelectorAll('button[type=submit], input[type=submit], button')]
+    .filter(visible)
+    .find(b => (form ? b.form === form : true) && /log|sign|inlog|verder|next|continue|confirm|verify|bevestig/i.test(b.innerText + ' ' + b.value));
+  if (btn) { btn.click(); return 'click:' + (btn.innerText || btn.value).trim().slice(0, 30); }
+  if (form && form.requestSubmit) { form.requestSubmit(); return 'requestSubmit'; }
+  return null;
+})()
+"""
+
+
 async def _settle(page, ms: int = 1500) -> None:
-    """Let late scripts (cookie banners, SPA routing) finish before acting."""
+    """Let late scripts finish, then expose visually shown controls that sites hide from the a11y tree."""
     try:
         await page.wait_for_load_state("networkidle", timeout=8000)
     except Exception:  # noqa: BLE001
         pass
     await page.wait_for_timeout(ms)
+    try:
+        await page.evaluate(UNHIDE_JS)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _fill_fallback(page, log: Callable[[str], None], kind: str, value: str) -> bool:
+    """Deterministic DOM fill when the agent cannot locate the field."""
+    try:
+        target = await page.evaluate(f"({FILL_JS})({{kind: {kind!r}, value: {value!r}}})")
+    except Exception as e:  # noqa: BLE001
+        log(f"Fallback fill for {kind} errored: {e}")
+        return False
+    if target:
+        log(f"Filled {kind} via DOM fallback ({target})")
+        return True
+    log(f"Fallback fill: no visible {kind} field")
+    return False
+
+
+async def _submit_fallback(page, log: Callable[[str], None]) -> bool:
+    try:
+        how = await page.evaluate(SUBMIT_JS)
+    except Exception as e:  # noqa: BLE001
+        log(f"Fallback submit errored: {e}")
+        return False
+    if how:
+        log(f"Submitted via DOM fallback ({how})")
+        return True
+    return False
 
 
 async def _act_retry(
@@ -174,30 +256,38 @@ async def fetch_website_invoices(
             await _dismiss_overlays(stagehand, log)
 
             # Credentials are passed as variables, never sent to the LLM.
-            await _act_retry(
+            if not await _act_retry(
                 stagehand, page, log, "type %username% into the username or email field",
                 variables={"username": username},
-            )
+            ):
+                await _fill_fallback(page, log, "username", username)
             # Two-step logins ask for the password on the next screen.
             if not (await stagehand.observe("the password input field")).data:
-                await _act(stagehand, log, "click the next / continue / verder button")
-                await _settle(page)
-                await _dismiss_overlays(stagehand, log)
-            await _act_retry(
+                if await _act(stagehand, log, "click the next / continue / verder button"):
+                    await _settle(page)
+                    await _dismiss_overlays(stagehand, log)
+            if not await _act_retry(
                 stagehand, page, log, "type %password% into the password field",
                 variables={"password": password},
-            )
-            await _act_retry(stagehand, page, log, "click the sign in / log in / inloggen button")
+            ):
+                await _fill_fallback(page, log, "password", password)
+            if not await _act_retry(stagehand, page, log, "click the sign in / log in / inloggen button"):
+                await _submit_fallback(page, log)
             await _settle(page)
             log(f"Submitted login, now at {await page.url()}")
 
-            if op_totp_ref and (await stagehand.observe("the one-time / verification code input field")).data:
+            if op_totp_ref and (
+                (await stagehand.observe("the one-time / verification code input field")).data
+                or await page.evaluate("!!document.querySelector('input[autocomplete=one-time-code]')")
+            ):
                 code = await resolve_totp(providers["onepassword_service_account_token"], op_totp_ref)
-                await _act_retry(
+                if not await _act_retry(
                     stagehand, page, log, "type %code% into the one-time / verification code field",
                     variables={"code": code},
-                )
-                await _act_retry(stagehand, page, log, "click the confirm / verify / continue button")
+                ):
+                    await _fill_fallback(page, log, "code", code)
+                if not await _act_retry(stagehand, page, log, "click the confirm / verify / continue button"):
+                    await _submit_fallback(page, log)
                 await _settle(page)
                 log(f"Submitted 2FA code, now at {await page.url()}")
             elif op_totp_ref:
