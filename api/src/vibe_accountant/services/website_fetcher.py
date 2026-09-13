@@ -68,13 +68,16 @@ async def fetch_website_invoices(
     *,
     providers: dict[str, str],
     login_url: str,
-    op_item_ref: str,
+    op_username_ref: str,
+    op_password_ref: str,
     instructions: str | None,
     log: Callable[[str], None],
     on_session: Callable[[str], None],
 ) -> list[tuple[str, bytes, str]]:
     """Returns list of (filename, bytes, origin_ref)."""
-    username, password = await resolve_login(providers["onepassword_service_account_token"], op_item_ref)
+    username, password = await resolve_login(
+        providers["onepassword_service_account_token"], op_username_ref, op_password_ref
+    )
     log("Credentials resolved from 1Password")
 
     browser = await browserbase.launch(api_key=providers["browserbase_api_key"])

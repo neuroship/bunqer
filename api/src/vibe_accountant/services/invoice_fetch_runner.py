@@ -57,8 +57,10 @@ async def run_source(source_id: int) -> None:
         if source.kind == SourceKind.WEBSITE.value:
             require_provider(providers, "browserbase_api_key", "onepassword_service_account_token",
                              "llm_model", "llm_api_key")
-            if not source.login_url or not source.op_item_ref:
-                raise RuntimeError("Website source needs a login URL and a 1Password item reference")
+            if not source.login_url or not source.op_username_ref or not source.op_password_ref:
+                raise RuntimeError(
+                    "Website source needs a login URL and 1Password username + password references"
+                )
             from .website_fetcher import fetch_website_invoices
 
             def on_session(sid: str) -> None:
@@ -66,7 +68,8 @@ async def run_source(source_id: int) -> None:
                 db.commit()
 
             files = await fetch_website_invoices(
-                providers=providers, login_url=source.login_url, op_item_ref=source.op_item_ref,
+                providers=providers, login_url=source.login_url,
+                op_username_ref=source.op_username_ref, op_password_ref=source.op_password_ref,
                 instructions=source.instructions, log=log, on_session=on_session,
             )
         else:

@@ -34,7 +34,8 @@
       kind: 'website',
       enabled: true,
       login_url: '',
-      op_item_ref: '',
+      op_username_ref: '',
+      op_password_ref: '',
       instructions: '',
       gmail_query: ''
     }
@@ -89,7 +90,8 @@
       kind: src.kind,
       enabled: src.enabled,
       login_url: src.login_url || '',
-      op_item_ref: src.op_item_ref || '',
+      op_username_ref: src.op_username_ref || '',
+      op_password_ref: src.op_password_ref || '',
       instructions: src.instructions || '',
       gmail_query: src.gmail_query || ''
     }
@@ -101,8 +103,8 @@
       window.showToast?.('Name is required', 'error')
       return
     }
-    if (form.kind === 'website' && (!form.login_url.trim() || !form.op_item_ref.trim())) {
-      window.showToast?.('Login URL and 1Password item are required', 'error')
+    if (form.kind === 'website' && (!form.login_url.trim() || !form.op_username_ref.trim() || !form.op_password_ref.trim())) {
+      window.showToast?.('Login URL and both 1Password references are required', 'error')
       return
     }
     saving = true
@@ -111,7 +113,8 @@
         name: form.name.trim(),
         enabled: form.enabled,
         login_url: form.login_url.trim() || null,
-        op_item_ref: form.op_item_ref.trim() || null,
+        op_username_ref: form.op_username_ref.trim() || null,
+        op_password_ref: form.op_password_ref.trim() || null,
         instructions: form.instructions.trim() || null,
         gmail_query: form.gmail_query.trim() || null
       }
@@ -342,8 +345,9 @@
 
   {#if form.kind === 'website'}
     <Input label="Login URL" bind:value={form.login_url} placeholder="https://console.vendor.com/login" required />
-    <Input label="1Password item" bind:value={form.op_item_ref} placeholder="op://Vault/Item name" required />
-    <p class="text-xs text-va-muted -mt-2 mb-3">Item must have <code>username</code> and <code>password</code> fields. Resolved via the Service Account, never shown to the AI.</p>
+    <Input label="1Password username reference" bind:value={form.op_username_ref} placeholder="op://Private/MijnKPN/email" required />
+    <Input label="1Password password reference" bind:value={form.op_password_ref} placeholder="op://Private/MijnKPN/password" required />
+    <p class="text-xs text-va-muted -mt-2 mb-3">Same format as <code>op read</code>: <code>op://Vault/Item/field</code>. Field is the label in the item (often <code>username</code> or <code>email</code>). Resolved via the Service Account, never shown to the AI.</p>
     <Input type="textarea" label="Navigation hint (optional)" bind:value={form.instructions} placeholder="Billing > Invoices, then open each PDF" />
   {:else}
     <Input label="Gmail search query" bind:value={form.gmail_query} placeholder="has:attachment filename:pdf (invoice OR factuur) newer_than:90d" />

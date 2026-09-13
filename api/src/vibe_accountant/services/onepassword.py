@@ -6,14 +6,19 @@ INTEGRATION_NAME = "Bunqer Invoice Fetcher"
 INTEGRATION_VERSION = "v1.0.0"
 
 
-async def resolve_login(token: str, item_ref: str) -> tuple[str, str]:
-    """Resolve username and password for an item reference like op://Vault/Item."""
-    ref = item_ref.strip().rstrip("/")
-    if not ref.startswith("op://") or ref.count("/") < 3:
-        raise ValueError("1Password reference must look like op://Vault/Item")
+def _check_ref(ref: str) -> str:
+    ref = ref.strip()
+    if not ref.startswith("op://") or ref.count("/") < 4:
+        raise ValueError(f"1Password reference must look like op://Vault/Item/field, got '{ref}'")
+    return ref
+
+
+async def resolve_login(token: str, username_ref: str, password_ref: str) -> tuple[str, str]:
+    """Resolve username and password from two secret references (op://Vault/Item/field)."""
+    username_ref, password_ref = _check_ref(username_ref), _check_ref(password_ref)
     client = await Client.authenticate(
         auth=token, integration_name=INTEGRATION_NAME, integration_version=INTEGRATION_VERSION
     )
-    username = await client.secrets.resolve(f"{ref}/username")
-    password = await client.secrets.resolve(f"{ref}/password")
+    username = await client.secrets.resolve(username_ref)
+    password = await client.secrets.resolve(password_ref)
     return username, password

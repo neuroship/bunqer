@@ -183,7 +183,7 @@ The **Auto-Fetch** tab collects purchase invoices without manual uploads. Fetche
 
 ### Sources
 
-- **Website** — logs into a vendor portal in a Browserbase cloud browser driven by Stagehand. Credentials come from a 1Password Service Account (`op://Vault/Item`, fields `username` and `password`) and are injected as Stagehand variables, never sent to the LLM. The agent navigates to the billing page, extracts PDF links, and downloads them. Each run links to the Browserbase session replay.
+- **Website** — logs into a vendor portal in a Browserbase cloud browser driven by Stagehand. Credentials come from a 1Password Service Account via two secret references in `op read` format (for example `op://Private/MijnKPN/email` and `op://Private/MijnKPN/password`) and are injected as Stagehand variables, never sent to the LLM. The agent navigates to the billing page, extracts PDF links, and downloads them. Each run links to the Browserbase session replay.
 - **Gmail** — read-only OAuth connection. PDF attachments matching a Gmail search query (default: invoice-like PDFs from the last 90 days) are collected.
 
 Every enabled source runs once a day; any source can also be run on demand. Runs are logged with counts of found, new, and matched documents.

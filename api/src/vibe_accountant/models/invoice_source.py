@@ -33,7 +33,8 @@ class InvoiceSource(Base):
 
     # website
     login_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    op_item_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)  # op://Vault/Item
+    op_username_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)  # op://Vault/Item/field
+    op_password_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # gmail
@@ -83,7 +84,8 @@ class InvoiceSourceCreate(BaseModel):
     kind: SourceKind
     enabled: bool = True
     login_url: str | None = None
-    op_item_ref: str | None = None
+    op_username_ref: str | None = None
+    op_password_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
 
@@ -92,7 +94,8 @@ class InvoiceSourceUpdate(BaseModel):
     name: str | None = None
     enabled: bool | None = None
     login_url: str | None = None
-    op_item_ref: str | None = None
+    op_username_ref: str | None = None
+    op_password_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
 
@@ -103,7 +106,8 @@ class InvoiceSourceResponse(BaseModel):
     kind: str
     enabled: bool
     login_url: str | None = None
-    op_item_ref: str | None = None
+    op_username_ref: str | None = None
+    op_password_ref: str | None = None
     instructions: str | None = None
     gmail_query: str | None = None
     gmail_email: str | None = None

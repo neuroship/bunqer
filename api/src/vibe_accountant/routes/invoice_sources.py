@@ -59,7 +59,8 @@ async def create_source(data: InvoiceSourceCreate, db: Session = Depends(get_db)
         kind=data.kind.value,
         enabled=data.enabled,
         login_url=data.login_url,
-        op_item_ref=data.op_item_ref,
+        op_username_ref=data.op_username_ref,
+        op_password_ref=data.op_password_ref,
         instructions=data.instructions,
         gmail_query=data.gmail_query,
     )
