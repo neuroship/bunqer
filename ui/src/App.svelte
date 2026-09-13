@@ -10,14 +10,15 @@
   import Categories from './lib/pages/Categories.svelte'
   import Settings from './lib/pages/Settings.svelte'
   import Documents from './lib/pages/Documents.svelte'
+  import Fetchers from './lib/pages/Fetchers.svelte'
   import Login from './lib/pages/Login.svelte'
   import Toast from './lib/components/Toast.svelte'
   import { subscribeToEvents, isAuthenticated, clearAuth, setOnUnauthorized, getUsername, payments } from './lib/api.js'
 
-  const pages = ['onboarding', 'transactions', 'payments', 'analytics', 'invoices', 'clients', 'categories', 'documents', 'settings']
+  const pages = ['onboarding', 'transactions', 'payments', 'analytics', 'invoices', 'clients', 'categories', 'documents', 'fetchers', 'settings']
 
   function pageFromHash() {
-    const page = window.location.hash.replace(/^#\/?/, '')
+    const page = window.location.hash.replace(/^#\/?/, '').split('?')[0]
     return pages.includes(page) ? page : 'transactions'
   }
 
@@ -123,6 +124,20 @@
       case 'notification':
         showToast(event.data.message, event.data.level || 'info')
         break
+      case 'fetch_started':
+        syncStatus = event.data.message
+        break
+      case 'fetch_completed':
+        syncStatus = ''
+        showToast(event.data.message, event.data.new > 0 ? 'success' : 'info')
+        window.dispatchEvent(new CustomEvent('fetch-updated'))
+        if (event.data.matched > 0) window.dispatchEvent(new CustomEvent('transactions-updated'))
+        break
+      case 'fetch_error':
+        syncStatus = ''
+        showToast(event.data.message, 'error')
+        window.dispatchEvent(new CustomEvent('fetch-updated'))
+        break
       case 'approvals_pending':
         pendingApprovals = event.data.count
         if (event.data.new_count > 0) {
@@ -203,6 +218,8 @@
         <Categories />
       {:else if currentPage === 'documents'}
         <Documents bind:openDocumentId={openDocumentId} />
+      {:else if currentPage === 'fetchers'}
+        <Fetchers />
       {:else if currentPage === 'settings'}
         <Settings />
       {/if}

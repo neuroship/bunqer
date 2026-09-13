@@ -177,6 +177,28 @@ PDF, PNG, JPEG, WebP, TIFF (max 20 MB)
 
 Requires `MISTRAL_API_KEY` and AWS S3 credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`) in `.env`.
 
+## Auto-Fetch (invoice collection)
+
+The **Auto-Fetch** tab collects purchase invoices without manual uploads. Fetched files enter the same document pipeline above and are matched to transactions.
+
+### Sources
+
+- **Website** — logs into a vendor portal in a Browserbase cloud browser driven by Stagehand. Credentials come from a 1Password Service Account (`op://Vault/Item`, fields `username` and `password`) and are injected as Stagehand variables, never sent to the LLM. The agent navigates to the billing page, extracts PDF links, and downloads them. Each run links to the Browserbase session replay.
+- **Gmail** — read-only OAuth connection. PDF attachments matching a Gmail search query (default: invoice-like PDFs from the last 90 days) are collected.
+
+Every enabled source runs once a day; any source can also be run on demand. Runs are logged with counts of found, new, and matched documents.
+
+### Provider setup
+
+All keys are entered under **Settings > Auto-Fetch providers** and stored in the database (no env vars):
+
+| Provider | What to enter |
+|----------|---------------|
+| Browserbase | API key (`bb_live_...`) |
+| 1Password | Service Account token with read access to the vault holding vendor logins |
+| LLM | Model in `provider/model` form (default `anthropic/claude-opus-5`) and its API key |
+| Google | OAuth client ID + secret with the Gmail API enabled, and the redirect URI `<API_URL>/invoice-sources/gmail/callback` registered on the client |
+
 ## Project Structure
 
 ```

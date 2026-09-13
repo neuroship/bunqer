@@ -42,6 +42,23 @@ from .document import (
     DocumentListResponse,
     MatchedTransactionInfo,
 )
+from .provider_settings import (
+    ProviderSetting,
+    ProviderSettingsUpdate,
+    PROVIDER_KEYS,
+    get_provider_settings,
+    require_provider,
+)
+from .invoice_source import (
+    InvoiceSource,
+    InvoiceFetchRun,
+    InvoiceSourceCreate,
+    InvoiceSourceUpdate,
+    InvoiceSourceResponse,
+    InvoiceFetchRunResponse,
+    SourceKind,
+    RunStatus,
+)
 
 __all__ = [
     "Base",
@@ -91,4 +108,17 @@ __all__ = [
     "DocumentResponse",
     "DocumentListResponse",
     "MatchedTransactionInfo",
+    "ProviderSetting",
+    "ProviderSettingsUpdate",
+    "PROVIDER_KEYS",
+    "get_provider_settings",
+    "require_provider",
+    "InvoiceSource",
+    "InvoiceFetchRun",
+    "InvoiceSourceCreate",
+    "InvoiceSourceUpdate",
+    "InvoiceSourceResponse",
+    "InvoiceFetchRunResponse",
+    "SourceKind",
+    "RunStatus",
 ]

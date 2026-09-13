@@ -493,6 +493,27 @@ export const companySettings = {
   deleteLogo: () => request('/settings/company/logo', { method: 'DELETE' })
 }
 
+// Invoice sources (auto-fetch from websites / Gmail)
+export const invoiceSources = {
+  list: () => request('/invoice-sources'),
+  create: (data) => request('/invoice-sources', { method: 'POST', body: data }),
+  update: (id, data) => request(`/invoice-sources/${id}`, { method: 'PATCH', body: data }),
+  delete: (id) => request(`/invoice-sources/${id}`, { method: 'DELETE' }),
+  run: (id) => request(`/invoice-sources/${id}/run`, { method: 'POST' }),
+  runs: (params = {}) => {
+    const query = new URLSearchParams(params).toString()
+    return request(`/invoice-sources/runs${query ? `?${query}` : ''}`)
+  },
+  gmailAuthUrl: (id) => request(`/invoice-sources/${id}/gmail/auth-url`),
+  gmailDisconnect: (id) => request(`/invoice-sources/${id}/gmail/disconnect`, { method: 'POST' }),
+}
+
+// Provider credentials (Browserbase, 1Password, LLM, Google)
+export const providerSettings = {
+  get: () => request('/settings/providers'),
+  update: (data) => request('/settings/providers', { method: 'PUT', body: data }),
+}
+
 // Events (SSE)
 export function subscribeToEvents(onEvent) {
   const token = getToken()
@@ -565,6 +586,8 @@ export default {
   documents,
   payments,
   companySettings,
+  invoiceSources,
+  providerSettings,
   passkeys,
   subscribeToEvents,
   isAuthenticated,

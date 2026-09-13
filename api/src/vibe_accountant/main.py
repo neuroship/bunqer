@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from .auth import get_current_user
 from .config import settings
 from .logger import logger
-from .routes import categories, documents, events, health, integrations, invoices, passkeys, payments, settings as settings_routes, setup, transactions
+from .routes import categories, documents, events, health, integrations, invoice_sources, invoices, passkeys, payments, settings as settings_routes, setup, transactions
 
 SYNC_INTERVAL_SECONDS = 60
 
@@ -70,6 +70,7 @@ auth_dependency = [Depends(get_current_user)]
 app.include_router(health.router)
 app.include_router(events.router)  # SSE handles auth via query param (EventSource limitation)
 app.include_router(passkeys.router)  # Mixed auth: login endpoints public, management endpoints use Depends
+app.include_router(invoice_sources.public_router)  # Google OAuth redirect lands here without a JWT
 
 # Include protected routers (auth required)
 app.include_router(integrations.router, dependencies=auth_dependency)
@@ -80,6 +81,7 @@ app.include_router(categories.router, dependencies=auth_dependency)
 app.include_router(settings_routes.router, dependencies=auth_dependency)
 app.include_router(documents.router, dependencies=auth_dependency)
 app.include_router(payments.router, dependencies=auth_dependency)
+app.include_router(invoice_sources.router, dependencies=auth_dependency)
 
 
 @app.on_event("startup")
@@ -105,6 +107,9 @@ async def startup_event():
 
     from .services.approval_watcher import watch_pending_approvals
     asyncio.create_task(watch_pending_approvals())
+
+    from .services.invoice_fetch_runner import periodic_fetch
+    asyncio.create_task(periodic_fetch())
 
 
 @app.on_event("shutdown")

@@ -44,6 +44,59 @@
   let logoPreview = $state(null)
   let fileInput
 
+  // Provider credentials (Auto-Fetch)
+  const providerFields = [
+    { key: 'browserbase_api_key', label: 'Browserbase API key', secret: true, placeholder: 'bb_live_...' },
+    { key: 'onepassword_service_account_token', label: '1Password Service Account token', secret: true, placeholder: 'ops_...' },
+    { key: 'llm_model', label: 'LLM model (Stagehand)', secret: false, placeholder: 'anthropic/claude-opus-5' },
+    { key: 'llm_api_key', label: 'LLM API key', secret: true, placeholder: 'sk-ant-...' },
+    { key: 'google_client_id', label: 'Google OAuth client ID', secret: false, placeholder: '....apps.googleusercontent.com' },
+    { key: 'google_client_secret', label: 'Google OAuth client secret', secret: true, placeholder: 'GOCSPX-...' },
+    { key: 'google_redirect_uri', label: 'Google redirect URI', secret: false, placeholder: `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/invoice-sources/gmail/callback` }
+  ]
+  let providers = $state({})
+  let providerForm = $state({})
+  let savingProviders = $state(false)
+
+  async function loadProviders() {
+    try {
+      providers = await api.providerSettings.get()
+      const f = {}
+      for (const { key, secret } of providerFields) f[key] = secret ? '' : (providers[key]?.value || '')
+      providerForm = f
+    } catch (error) {
+      console.error('Failed to load provider settings:', error)
+    }
+  }
+
+  async function saveProviders() {
+    savingProviders = true
+    try {
+      // Secrets: only send when the user typed something (blank keeps the stored value)
+      const body = {}
+      for (const { key, secret } of providerFields) {
+        const v = providerForm[key] ?? ''
+        if (!secret || v.trim()) body[key] = v
+      }
+      providers = await api.providerSettings.update(body)
+      for (const { key, secret } of providerFields) if (secret) providerForm[key] = ''
+      window.showToast?.('Provider settings saved', 'success')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      savingProviders = false
+    }
+  }
+
+  async function clearProvider(key) {
+    try {
+      providers = await api.providerSettings.update({ [key]: '' })
+      providerForm[key] = ''
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
   onMount(async () => {
     passkeySupported = passkeys.isSupported()
 
@@ -74,6 +127,7 @@
     if (passkeySupported) {
       await loadPasskeys()
     }
+    await loadProviders()
   })
 
   async function loadPasskeys() {
@@ -280,6 +334,48 @@
           <Button onclick={saveSettings} loading={saving}>
             Save Settings
           </Button>
+        </div>
+      </Card>
+    </div>
+
+    <!-- Providers (Auto-Fetch) -->
+    <div class="mt-4">
+      <Card>
+        <h3 class="text-sm font-medium text-va-text mb-1">Auto-Fetch providers</h3>
+        <p class="text-xs text-va-muted mb-4">
+          Keys used to collect invoices automatically. Browserbase runs the cloud browser, 1Password supplies vendor logins,
+          the LLM drives navigation, Google enables Gmail. Stored in the database, secrets never leave the server.
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0" class:privacy-blur={privacyOn}>
+          {#each providerFields as f (f.key)}
+            <div class="mb-3">
+              <label class="flex items-center justify-between text-sm text-va-muted mb-1.5">
+                <span>
+                  {f.label}
+                  {#if providers[f.key]?.set}
+                    <span class="ml-1 text-[10px] text-va-success">● set</span>
+                  {/if}
+                </span>
+                {#if f.secret && providers[f.key]?.set}
+                  <button onclick={() => clearProvider(f.key)} class="text-[10px] text-va-danger hover:underline">clear</button>
+                {/if}
+              </label>
+              <input
+                type={f.secret ? 'password' : 'text'}
+                bind:value={providerForm[f.key]}
+                placeholder={f.secret && providers[f.key]?.set ? providers[f.key].value : f.placeholder}
+                autocomplete="off"
+                class="input input-sm bg-va-canvas border-va-border text-va-text w-full"
+              />
+            </div>
+          {/each}
+        </div>
+        <p class="text-xs text-va-muted mb-3">
+          Register the redirect URI above in your Google Cloud OAuth client (Gmail API enabled, scope <code>gmail.readonly</code>).
+          The 1Password Service Account needs read access to the vault holding vendor logins.
+        </p>
+        <div class="flex justify-end pt-3 border-t border-va-border">
+          <Button onclick={saveProviders} loading={savingProviders}>Save Providers</Button>
         </div>
       </Card>
     </div>

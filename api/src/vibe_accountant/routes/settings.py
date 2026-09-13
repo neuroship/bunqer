@@ -7,7 +7,15 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..logger import logger
-from ..models import CompanySettings, CompanySettingsResponse, CompanySettingsUpdate
+from ..models import (
+    PROVIDER_KEYS,
+    CompanySettings,
+    CompanySettingsResponse,
+    CompanySettingsUpdate,
+    ProviderSetting,
+    ProviderSettingsUpdate,
+    get_provider_settings,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -90,3 +98,35 @@ async def delete_company_logo(db: Session = Depends(get_db)):
     response = CompanySettingsResponse.model_validate(settings)
     response.has_logo = False
     return response
+
+
+# --- Provider credentials (Browserbase, 1Password, LLM, Google) ---
+
+
+def _mask(value: str) -> str:
+    return "••••" + value[-4:] if len(value) > 4 else "••••"
+
+
+@router.get("/providers")
+async def get_provider_settings_route(db: Session = Depends(get_db)):
+    """Provider settings with secrets masked."""
+    values = get_provider_settings(db)
+    out = {}
+    for key, is_secret in PROVIDER_KEYS.items():
+        val = values.get(key) or ""
+        out[key] = {"set": bool(val), "value": _mask(val) if (is_secret and val) else val}
+    return out
+
+
+@router.put("/providers")
+async def update_provider_settings_route(data: ProviderSettingsUpdate, db: Session = Depends(get_db)):
+    """Update provider settings. Only keys present in the body change; empty string clears."""
+    for key, value in data.model_dump(exclude_unset=True).items():
+        row = db.query(ProviderSetting).get(key)
+        if not row:
+            row = ProviderSetting(key=key)
+            db.add(row)
+        row.value = (value or "").strip() or None
+    db.commit()
+    logger.info("Updated provider settings")
+    return await get_provider_settings_route(db)

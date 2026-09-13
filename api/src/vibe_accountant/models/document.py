@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -56,6 +56,13 @@ class Document(Base):
     payment_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Where an auto-fetched document came from
+    source_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("invoice_sources.id", ondelete="SET NULL"), nullable=True
+    )
+    origin_ref: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -104,6 +111,8 @@ class DocumentResponse(BaseModel):
     tax_subject: str | None = None
     payment_reference: str | None = None
     error_message: str | None = None
+    source_id: int | None = None
+    origin_ref: str | None = None
     matched_transactions: list[MatchedTransactionInfo] = []
     created_at: datetime
     updated_at: datetime

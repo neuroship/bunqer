@@ -19,6 +19,11 @@ dependencies = [
     "webauthn>=2.0.0",
     "boto3>=1.35.0",
     "mistralai>=1.6.0",
+    "stagehand>=4.1.0",
+    "onepassword-sdk>=0.4.1",
+    "browserbase>=1.19.0",
+    "google-api-python-client>=2.200.0",
+    "google-auth-oauthlib>=1.4.1",
 ]
 
 [project.optional-dependencies]

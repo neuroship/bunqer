@@ -12,6 +12,7 @@
     { id: 'invoices', label: 'Invoices', icon: 'icon-[tabler--file-text]' },
     { id: 'clients', label: 'Clients', icon: 'icon-[tabler--users]' },
     { id: 'documents', label: 'Documents', icon: 'icon-[tabler--file-upload]' },
+    { id: 'fetchers', label: 'Auto-Fetch', icon: 'icon-[tabler--robot]' },
     { id: 'categories', label: 'Categories', icon: 'icon-[tabler--tags]' },
     { id: 'settings', label: 'Settings', icon: 'icon-[tabler--building]' },
     { id: 'onboarding', label: 'Setup', icon: 'icon-[tabler--settings]' }
