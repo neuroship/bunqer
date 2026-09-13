@@ -159,13 +159,46 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
             _running.discard(source_id)
 
 
+def _mark_interrupted_runs(db: Session) -> None:
+    """Runs left 'running' by a restart can never finish; close them out."""
+    stale = db.query(InvoiceFetchRun).filter(InvoiceFetchRun.status == RunStatus.RUNNING.value).all()
+    for run in stale:
+        run.status = RunStatus.FAILED.value
+        run.error = "Interrupted by an application restart"
+        run.finished_at = datetime.now()
+        if run.source:
+            run.source.last_status = RunStatus.FAILED.value
+    if stale:
+        db.commit()
+        logger.warning(f"Marked {len(stale)} interrupted fetch run(s) as failed")
+
+
+def _due(db: Session, source_id: int) -> bool:
+    """A source is due when it has not been run in the last interval."""
+    last = (
+        db.query(InvoiceFetchRun)
+        .filter(InvoiceFetchRun.source_id == source_id)
+        .order_by(InvoiceFetchRun.started_at.desc())
+        .first()
+    )
+    return not last or (datetime.now() - last.started_at).total_seconds() >= FETCH_INTERVAL_SECONDS - 3600
+
+
 async def periodic_fetch() -> None:
-    """Run every enabled source once a day."""
+    """Run every enabled source once a day; restarts do not trigger extra runs."""
     await asyncio.sleep(30)
+    db = SessionLocal()
+    try:
+        _mark_interrupted_runs(db)
+    finally:
+        db.close()
     while True:
         db = SessionLocal()
         try:
-            ids = [s.id for s in db.query(InvoiceSource).filter(InvoiceSource.enabled.is_(True)).all()]
+            ids = [
+                s.id for s in db.query(InvoiceSource).filter(InvoiceSource.enabled.is_(True)).all()
+                if _due(db, s.id)
+            ]
         finally:
             db.close()
         for sid in ids:
@@ -173,4 +206,4 @@ async def periodic_fetch() -> None:
                 await run_source(sid)
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Scheduled fetch failed for source {sid}: {e}")
-        await asyncio.sleep(FETCH_INTERVAL_SECONDS)
+        await asyncio.sleep(3600)
