@@ -27,7 +27,7 @@ from ..models import (
     require_provider,
 )
 from ..services import gmail_fetcher
-from ..services.invoice_fetch_runner import is_running, run_source
+from ..services.invoice_fetch_runner import is_running, run_all, run_source
 
 router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
 # Google redirects the browser here without our JWT, so this router is mounted without auth.
@@ -112,6 +112,20 @@ async def trigger_run(
         raise HTTPException(400, "date_from must be on or before date_to")
     asyncio.create_task(run_source(source_id, period.date_from, period.date_to))
     return {"detail": f"Fetch started for {src.name}"}
+
+
+@router.post("/run-all")
+async def trigger_run_all(period: RunRequest, db: Session = Depends(get_db)):
+    """Run every source sequentially for one period (e.g. a quarter)."""
+    if not period.date_from or not period.date_to:
+        raise HTTPException(400, "date_from and date_to are required")
+    if period.date_from > period.date_to:
+        raise HTTPException(400, "date_from must be on or before date_to")
+    count = db.query(InvoiceSource).count()
+    if not count:
+        raise HTTPException(400, "No sources configured")
+    asyncio.create_task(run_all(period.date_from, period.date_to))
+    return {"detail": f"Collecting {period.date_from} to {period.date_to} from {count} source(s)"}
 
 
 @router.get("/runs", response_model=list[InvoiceFetchRunResponse])

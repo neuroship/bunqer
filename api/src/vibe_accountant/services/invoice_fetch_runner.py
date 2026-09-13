@@ -172,6 +172,20 @@ def _mark_interrupted_runs(db: Session) -> None:
         logger.warning(f"Marked {len(stale)} interrupted fetch run(s) as failed")
 
 
+async def run_all(date_from: date | None, date_to: date | None) -> None:
+    """Run every source one after another for the same period."""
+    db = SessionLocal()
+    try:
+        ids = [s.id for s in db.query(InvoiceSource).order_by(InvoiceSource.id).all()]
+    finally:
+        db.close()
+    for sid in ids:
+        try:
+            await run_source(sid, date_from, date_to)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Run-all failed for source {sid}: {e}")
+
+
 async def close_interrupted_runs() -> None:
     """On startup, close runs that a restart left in 'running'. No scheduled runs: all manual."""
     await asyncio.sleep(5)

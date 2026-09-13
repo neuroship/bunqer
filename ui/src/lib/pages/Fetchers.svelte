@@ -22,10 +22,10 @@
   let runDocs = $state([])
   let runDocsLoading = $state(false)
 
-  // Run period modal
+  // Run quarter modal (runTarget = a source, or 'all')
   let runTarget = $state(null)
-  let runFrom = $state('')
-  let runTo = $state('')
+  let runYear = $state(new Date().getFullYear())
+  let runQuarter = $state(Math.floor(new Date().getMonth() / 3) + 1)
   let starting = $state(false)
 
   let pollInterval = null
@@ -156,35 +156,41 @@
     }
   }
 
-  function isoDate(d) {
-    return d.toISOString().slice(0, 10)
+  function quarterRange(year, q) {
+    const from = `${year}-${String((q - 1) * 3 + 1).padStart(2, '0')}-01`
+    const endMonth = q * 3
+    const lastDay = new Date(year, endMonth, 0).getDate()
+    const to = `${year}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    return { date_from: from, date_to: to }
   }
 
-  function openRun(src) {
-    const last = runs.find(r => r.source_id === src.id && r.status === 'completed')
-    const from = new Date()
-    if (last?.date_to) {
-      from.setTime(new Date(last.date_to).getTime())
-      from.setDate(from.getDate() - 7)
-    } else {
-      from.setDate(from.getDate() - 90)
-    }
-    runFrom = isoDate(from)
-    runTo = isoDate(new Date())
-    runTarget = src
+  function quarterLabel(run) {
+    if (!run.date_from || !run.date_to) return `${run.date_from || '…'} → ${run.date_to || '…'}`
+    const [y, m, d] = run.date_from.split('-').map(Number)
+    const q = Math.floor((m - 1) / 3) + 1
+    const r = quarterRange(y, q)
+    return r.date_from === run.date_from && r.date_to === run.date_to ? `Q${q} ${y}` : `${run.date_from} → ${run.date_to}`
+  }
+
+  const yearOptions = Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i)
+
+  function openRun(target) {
+    const now = new Date()
+    runYear = now.getFullYear()
+    runQuarter = Math.floor(now.getMonth() / 3) + 1
+    runTarget = target
   }
 
   async function runNow() {
     if (!runTarget) return
-    if (runFrom && runTo && runFrom > runTo) {
-      window.showToast?.('From date must be before To date', 'error')
-      return
-    }
+    const period = quarterRange(runYear, runQuarter)
     starting = true
     try {
-      const res = await api.invoiceSources.run(runTarget.id, { date_from: runFrom || null, date_to: runTo || null })
+      const res = runTarget === 'all'
+        ? await api.invoiceSources.runAll(period)
+        : await api.invoiceSources.run(runTarget.id, period)
       window.showToast?.(res.detail, 'info')
-      runningIds = new Set([...runningIds, runTarget.id])
+      runningIds = runTarget === 'all' ? new Set(sources.map(s => s.id)) : new Set([...runningIds, runTarget.id])
       runTarget = null
       if (!pollInterval) pollInterval = setInterval(loadAll, 5000)
     } catch (error) {
@@ -278,9 +284,14 @@
   <div class="flex items-center justify-between mb-4">
     <div>
       <h2 class="text-lg font-semibold text-va-text">Auto-Fetch</h2>
-      <p class="text-xs text-va-muted mt-0.5">Collect purchase invoices from vendor portals and Gmail, then match them to transactions. Runs only when you press play.</p>
+      <p class="text-xs text-va-muted mt-0.5">Collect purchase invoices from vendor portals and Gmail per quarter, then match them to transactions.</p>
     </div>
     <div class="flex items-center gap-2">
+      {#if sources.length > 0}
+        <Button variant="success" onclick={() => openRun('all')} disabled={runningIds.size > 0}>
+          <span class="icon-[tabler--player-play] w-4 h-4"></span> Collect quarter
+        </Button>
+      {/if}
       <Button variant="secondary" onclick={() => openCreate('gmail')}>
         <span class="icon-[tabler--mail] w-4 h-4"></span> Gmail
       </Button>
@@ -348,7 +359,7 @@
                 onclick={() => openRun(src)}
                 disabled={runningIds.has(src.id) || (src.kind === 'gmail' && !src.gmail_connected)}
                 class="p-1.5 rounded-md text-va-muted hover:text-va-success hover:bg-va-hover disabled:opacity-40"
-                title="Run for a period"
+                title="Collect a quarter from this source"
               >
                 <span class="icon-[tabler--player-play] w-4 h-4"></span>
               </button>
@@ -396,7 +407,7 @@
                 <tr class="text-sm hover:bg-va-hover cursor-pointer" onclick={() => openRunDetail(run)}>
                   <td class="text-va-text">{run.source_name || run.source_id}</td>
                   <td class="text-va-muted text-xs">{fmtDate(run.started_at)}</td>
-                  <td class="text-va-muted text-xs whitespace-nowrap">{run.date_from || '…'} → {run.date_to || '…'}</td>
+                  <td class="text-va-muted text-xs whitespace-nowrap">{quarterLabel(run)}</td>
                   <td class="text-va-muted text-xs">{duration(run)}</td>
                   <td><span class="badge badge-sm {statusColors[run.status] || ''}">{run.status}</span></td>
                   <td class="text-right">{run.documents_found}</td>
@@ -461,16 +472,33 @@
   </div>
 </Modal>
 
-<!-- Run period modal -->
-<Modal show={!!runTarget} title="Run {runTarget?.name || ''}" size="sm" onClose={() => runTarget = null}>
+<!-- Run quarter modal -->
+<Modal show={!!runTarget} title={runTarget === 'all' ? 'Collect quarter from all sources' : `Collect quarter from ${runTarget?.name || ''}`} size="sm" onClose={() => runTarget = null}>
   {#if runTarget}
-    <p class="text-xs text-va-muted mb-3">Invoices dated in this period are collected. Default: since the last completed run with a week of overlap, or the last 90 days. Nothing runs on a schedule.</p>
-    <Input type="date" label="From" bind:value={runFrom} />
-    <Input type="date" label="To" bind:value={runTo} />
-    <div class="flex justify-end gap-2 mt-2">
+    <p class="text-xs text-va-muted mb-3">All invoices dated in the chosen quarter are collected{runTarget === 'all' ? ', one source after another' : ''}.</p>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div>
+        <label class="block text-sm text-va-muted mb-1.5" for="run-quarter">Quarter</label>
+        <select id="run-quarter" bind:value={runQuarter} class="select select-sm bg-va-canvas border-va-border text-va-text w-full">
+          {#each [1, 2, 3, 4] as q}
+            <option value={q}>Q{q}</option>
+          {/each}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm text-va-muted mb-1.5" for="run-year">Year</label>
+        <select id="run-year" bind:value={runYear} class="select select-sm bg-va-canvas border-va-border text-va-text w-full">
+          {#each yearOptions as y}
+            <option value={y}>{y}</option>
+          {/each}
+        </select>
+      </div>
+    </div>
+    <p class="text-xs text-va-muted mb-4">{quarterRange(runYear, runQuarter).date_from} → {quarterRange(runYear, runQuarter).date_to}</p>
+    <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={() => runTarget = null}>Cancel</Button>
       <Button onclick={runNow} loading={starting}>
-        <span class="icon-[tabler--player-play] w-4 h-4"></span> Run
+        <span class="icon-[tabler--player-play] w-4 h-4"></span> Collect
       </Button>
     </div>
   {/if}
@@ -483,7 +511,7 @@
       <span class="badge badge-sm {statusColors[selectedRun.status] || ''}">{selectedRun.status}</span>
       <span>{selectedRun.source_name}</span>
       <span>{fmtDate(selectedRun.started_at)}</span>
-      <span>{selectedRun.date_from || '…'} → {selectedRun.date_to || '…'}</span>
+      <span>{quarterLabel(selectedRun)}</span>
       <span>{duration(selectedRun)}</span>
       {#if selectedRun.browserbase_session_id}
         <a href="https://browserbase.com/sessions/{selectedRun.browserbase_session_id}" target="_blank" rel="noopener" class="text-va-accent hover:underline">Session replay</a>
