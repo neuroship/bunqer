@@ -67,6 +67,29 @@ async def _act(stagehand: Stagehand, log: Callable[[str], None], instruction: st
     return result.data.success
 
 
+async def _settle(page, ms: int = 1500) -> None:
+    """Let late scripts (cookie banners, SPA routing) finish before acting."""
+    try:
+        await page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:  # noqa: BLE001
+        pass
+    await page.wait_for_timeout(ms)
+
+
+async def _act_retry(
+    stagehand: Stagehand, page, log: Callable[[str], None], instruction: str, attempts: int = 3, **kwargs
+) -> bool:
+    """Act, and on failure clear overlays, wait, and try again."""
+    for attempt in range(1, attempts + 1):
+        if await _act(stagehand, log, instruction, **kwargs):
+            return True
+        if attempt < attempts:
+            await _dismiss_overlays(stagehand, log)
+            await _settle(page)
+            log(f"Retrying ({attempt + 1}/{attempts}): '{instruction[:50]}'")
+    return False
+
+
 async def _dismiss_overlays(stagehand: Stagehand, log: Callable[[str], None]) -> None:
     """Close a cookie consent or promo dialog if one is covering the page."""
     found = await stagehand.observe(
@@ -146,37 +169,36 @@ async def fetch_website_invoices(
         try:
             page = (await browser.context.pages())[0]
             await page.goto(login_url, wait_until="domcontentloaded")
+            await _settle(page)
             log(f"Opened {login_url}")
             await _dismiss_overlays(stagehand, log)
 
             # Credentials are passed as variables, never sent to the LLM.
-            await _act(
-                stagehand, log, "type %username% into the username or email field",
+            await _act_retry(
+                stagehand, page, log, "type %username% into the username or email field",
                 variables={"username": username},
             )
             # Two-step logins ask for the password on the next screen.
             if not (await stagehand.observe("the password input field")).data:
                 await _act(stagehand, log, "click the next / continue / verder button")
-                await page.wait_for_load_state("domcontentloaded")
+                await _settle(page)
                 await _dismiss_overlays(stagehand, log)
-            await _act(
-                stagehand, log, "type %password% into the password field",
+            await _act_retry(
+                stagehand, page, log, "type %password% into the password field",
                 variables={"password": password},
             )
-            await _act(stagehand, log, "click the sign in / log in / inloggen button")
-            await page.wait_for_load_state("domcontentloaded")
-            await page.wait_for_timeout(1500)
+            await _act_retry(stagehand, page, log, "click the sign in / log in / inloggen button")
+            await _settle(page)
             log(f"Submitted login, now at {await page.url()}")
 
             if op_totp_ref and (await stagehand.observe("the one-time / verification code input field")).data:
                 code = await resolve_totp(providers["onepassword_service_account_token"], op_totp_ref)
-                await _act(
-                    stagehand, log, "type %code% into the one-time / verification code field",
+                await _act_retry(
+                    stagehand, page, log, "type %code% into the one-time / verification code field",
                     variables={"code": code},
                 )
-                await _act(stagehand, log, "click the confirm / verify / continue button")
-                await page.wait_for_load_state("domcontentloaded")
-                await page.wait_for_timeout(1500)
+                await _act_retry(stagehand, page, log, "click the confirm / verify / continue button")
+                await _settle(page)
                 log(f"Submitted 2FA code, now at {await page.url()}")
             elif op_totp_ref:
                 log("No 2FA prompt shown, skipping code")
