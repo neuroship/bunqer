@@ -55,7 +55,7 @@ class Invoice(Base):
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"
     )
     paid_transaction: Mapped["Transaction | None"] = relationship(
-        "Transaction", lazy="joined"
+        "Transaction", back_populates="paid_invoice", lazy="joined"
     )
 
 

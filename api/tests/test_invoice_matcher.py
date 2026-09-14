@@ -178,3 +178,16 @@ def test_one_transaction_pays_one_invoice(db):
     assert len(paid) == 1
     db.refresh(second)
     assert second.status == "sent"
+
+
+def test_transaction_response_names_the_paid_invoice(db):
+    from vibe_accountant.models import Transaction
+    from vibe_accountant.routes.transactions import _to_response
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "Bank transfer")
+    match_invoices_to_transactions(db)
+    txn = db.query(Transaction).one()
+    resp = _to_response(txn)
+    assert resp.paid_invoice_id == invoice.id
+    assert resp.paid_invoice_number == "INV-2026-001"

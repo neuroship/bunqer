@@ -1034,6 +1034,17 @@
                           </svg>
                         </button>
                       </span>
+                    {:else if transaction.paid_invoice_number}
+                      <button
+                        onclick={() => { window.location.hash = 'invoices' }}
+                        class="text-xs px-2 py-1 rounded-md bg-va-success/10 border border-va-success/30 text-va-success inline-flex items-center gap-1 hover:underline"
+                        title="Payment of invoice {transaction.paid_invoice_number}. View in Invoices"
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                        </svg>
+                        {transaction.paid_invoice_number}
+                      </button>
                     {:else}
                       <span class="text-sm text-va-muted/30">—</span>
                     {/if}

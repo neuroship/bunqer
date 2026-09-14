@@ -23,6 +23,9 @@ def _to_response(txn: Transaction) -> TransactionResponse:
     resp = TransactionResponse.model_validate(txn)
     if txn.document:
         resp.document_filename = txn.document.filename
+    if txn.paid_invoice:
+        resp.paid_invoice_id = txn.paid_invoice.id
+        resp.paid_invoice_number = txn.paid_invoice.invoice_number
     return resp
 
 
@@ -181,7 +184,9 @@ def filtered_transactions(
     db: Session = Depends(get_db),
 ):
     """Build the filtered and sorted transaction query shared by list and export."""
-    q = db.query(Transaction).options(joinedload(Transaction.document))
+    q = db.query(Transaction).options(
+        joinedload(Transaction.document), joinedload(Transaction.paid_invoice)
+    )
 
     # Apply filters
     if account_id:

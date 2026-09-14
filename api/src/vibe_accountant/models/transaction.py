@@ -76,6 +76,10 @@ class Transaction(Base):
     account: Mapped["Account"] = relationship("Account", back_populates="transactions")
     category: Mapped["Category | None"] = relationship("Category", back_populates="transactions")
     document: Mapped["Document | None"] = relationship("Document", back_populates="transactions")
+    # Sales invoice this transaction paid (set by the invoice matcher)
+    paid_invoice: Mapped["Invoice | None"] = relationship(
+        "Invoice", back_populates="paid_transaction", uselist=False
+    )
 
 
 # Pydantic schemas
@@ -133,6 +137,8 @@ class TransactionResponse(BaseModel):
     tag: str | None
     document_id: int | None = None
     document_filename: str | None = None
+    paid_invoice_id: int | None = None
+    paid_invoice_number: str | None = None
     transaction_date: datetime
     created_at: datetime
 
