@@ -1,6 +1,7 @@
 """Collect invoices from Gmail: LLM builds the search, triages matches, PDFs come from
 attachments or from the email body when there is no attachment."""
 
+import asyncio
 import base64
 import html
 import json
@@ -23,6 +24,10 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", SEND_SCOPE]
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DEFAULT_QUERY = "(invoice OR factuur OR receipt OR bill OR bon)"
 MAX_MESSAGES = 100
+# googleapiclient retries 429/5xx and 403 rateLimitExceeded with exponential backoff
+RETRIES = 5
+# Gmail's per-user quota is shared by every source; runs started together take turns.
+_GMAIL_LOCK = asyncio.Lock()
 
 
 # --- OAuth ---
@@ -58,7 +63,7 @@ def exchange_code(client_id: str, client_secret: str, redirect_uri: str, code: s
     flow.fetch_token(code=code)
     creds = flow.credentials
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
-    profile = service.users().getProfile(userId="me").execute()
+    profile = service.users().getProfile(userId="me").execute(num_retries=RETRIES)
     return creds.to_json(), profile.get("emailAddress", "")
 
 
@@ -96,8 +101,11 @@ async def build_query(providers: dict[str, str], description: str) -> str:
 
 Rules:
 - Use Gmail search syntax only (from:, subject:, OR, parentheses, quotes). No date operators.
-- Be inclusive: the results are filtered afterwards, so prefer recall over precision.
-- Include likely sender domains and both English and Dutch words (invoice, factuur, receipt, bon, betaling).
+- Every OR-branch must be anchored to the vendor: a from: address or domain, or the vendor name
+  combined with an invoice word. Never add bare generic terms such as subject:invoice or
+  subject:receipt on their own; they match every vendor's mail.
+- Within that anchor, be inclusive: likely sender domains and both English and Dutch words
+  (invoice, factuur, receipt, bon, betaling). Results are filtered afterwards.
 - Do not require has:attachment.
 Return JSON only: {{"query": "..."}}"""
     data = await llm.ask_json(providers, prompt)
@@ -132,10 +140,10 @@ def list_candidates(token_json: str, query: str, date_from: date | None, date_to
     """Messages matching the query in the window, with the fields needed for triage."""
     service = _service(token_json)
     q = f"{query} {_date_operators(date_from, date_to)}".strip()
-    resp = service.users().messages().list(userId="me", q=q, maxResults=MAX_MESSAGES).execute()
+    resp = service.users().messages().list(userId="me", q=q, maxResults=MAX_MESSAGES).execute(num_retries=RETRIES)
     out = []
     for m in resp.get("messages", []):
-        msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
+        msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute(num_retries=RETRIES)
         out.append({
             "id": m["id"],
             "subject": _header(msg, "subject") or "(no subject)",
@@ -284,7 +292,7 @@ def download_selected(token_json: str, selected: list[dict], log) -> list[tuple[
             for p in parts:
                 att = (
                     service.users().messages().attachments()
-                    .get(userId="me", messageId=c["id"], id=p["body"]["attachmentId"]).execute()
+                    .get(userId="me", messageId=c["id"], id=p["body"]["attachmentId"]).execute(num_retries=RETRIES)
                 )
                 results.append((p["filename"], base64.urlsafe_b64decode(att["data"]), f"gmail:{c['id']}:{p['filename']}"))
                 log(f"Attachment '{p['filename']}' from '{c['subject']}'")
@@ -300,9 +308,8 @@ async def preview(
 ) -> dict:
     """What a run would do: the query used and the emails it would take."""
     query = raw_query.strip() if raw_query and raw_query.strip() else await build_query(providers, description or "invoices")
-    import asyncio
-
-    candidates = await asyncio.to_thread(list_candidates, token_json, query, date_from, date_to)
+    async with _GMAIL_LOCK:
+        candidates = await asyncio.to_thread(list_candidates, token_json, query, date_from, date_to)
     selected = await triage(providers, description or "invoices and receipts", candidates)
     chosen_ids = {c["id"] for c in selected}
     return {
@@ -318,15 +325,15 @@ async def fetch_invoices(
     providers: dict[str, str], token_json: str, description: str | None, raw_query: str | None,
     date_from: date | None, date_to: date | None, log,
 ) -> list[tuple[str, bytes, str]]:
-    import asyncio
-
     query = raw_query.strip() if raw_query and raw_query.strip() else await build_query(providers, description or "invoices")
     log(f"Gmail search: {query} {_date_operators(date_from, date_to)}")
-    candidates = await asyncio.to_thread(list_candidates, token_json, query, date_from, date_to)
+    async with _GMAIL_LOCK:
+        candidates = await asyncio.to_thread(list_candidates, token_json, query, date_from, date_to)
     log(f"{len(candidates)} email(s) matched")
     selected = await triage(providers, description or "invoices and receipts", candidates)
     log(f"{len(selected)} selected as invoices")
-    files = await asyncio.to_thread(download_selected, token_json, selected, log)
+    async with _GMAIL_LOCK:
+        files = await asyncio.to_thread(download_selected, token_json, selected, log)
     logger.info(f"Gmail fetch done: {len(files)} file(s)")
     return files
 
@@ -363,6 +370,6 @@ def send_files(token_json: str, to: str, subject: str, body: str, files: list[tu
             maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
             msg.add_attachment(data, maintype=maintype, subtype=subtype or "octet-stream", filename=filename)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        service.users().messages().send(userId="me", body={"raw": raw}).execute(num_retries=RETRIES)
     logger.info(f"Sent {len(files)} file(s) to {to} in {len(batches)} message(s)")
     return len(batches)

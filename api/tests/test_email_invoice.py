@@ -34,7 +34,7 @@ class StubService:
         self.sent.append(body)
         return self
 
-    def execute(self):
+    def execute(self, **kwargs):
         return {}
 
 
