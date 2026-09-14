@@ -201,6 +201,34 @@
     return r.date_from === run.date_from && r.date_to === run.date_to ? `Q${q} ${y}` : `${run.date_from} → ${run.date_to}`
   }
 
+  // Quarter a run belongs to: the collected period's start, or the start time for runs without a period
+  function quarterOf(run) {
+    let y, m
+    if (run.date_from) {
+      [y, m] = run.date_from.split('-').map(Number)
+    } else if (run.started_at) {
+      const d = new Date(run.started_at)
+      y = d.getFullYear()
+      m = d.getMonth() + 1
+    } else {
+      return null
+    }
+    return { year: y, q: Math.floor((m - 1) / 3) + 1 }
+  }
+
+  let runGroups = $derived.by(() => {
+    const groups = new Map()
+    for (const run of runs) {
+      const rq = quarterOf(run)
+      const key = rq ? `${rq.year}-${rq.q}` : 'none'
+      if (!groups.has(key)) {
+        groups.set(key, { key, label: rq ? `Q${rq.q} ${rq.year}` : 'No period', sort: rq ? rq.year * 4 + rq.q : -1, runs: [] })
+      }
+      groups.get(key).runs.push(run)
+    }
+    return [...groups.values()].sort((a, b) => b.sort - a.sort)
+  })
+
   const yearOptions = Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i)
 
   function openRun(target) {
@@ -526,7 +554,14 @@
               </tr>
             </thead>
             <tbody>
-              {#each runs as run (run.id)}
+              {#each runGroups as group (group.key)}
+                <tr class="bg-va-hover/50">
+                  <td colspan="9" class="py-1.5 text-xs font-semibold text-va-text">
+                    <span class="icon-[tabler--calendar] w-3.5 h-3.5 align-text-bottom mr-1"></span>{group.label}
+                    <span class="text-va-muted font-normal">· {group.runs.length} run{group.runs.length === 1 ? '' : 's'}</span>
+                  </td>
+                </tr>
+              {#each group.runs as run (run.id)}
                 <tr class="text-sm hover:bg-va-hover cursor-pointer" onclick={() => openRunDetail(run)}>
                   <td class="text-va-text">{run.source_name || run.source_id}</td>
                   <td class="text-va-muted text-xs">{fmtDate(run.started_at)}</td>
@@ -569,6 +604,7 @@
                     {/if}
                   </td>
                 </tr>
+              {/each}
               {/each}
             </tbody>
           </table>
