@@ -42,6 +42,12 @@ class EmailRunRequest(BaseModel):
     to: str
 
 
+class EmailRunsRequest(BaseModel):
+    to: str
+    run_ids: list[int]
+    label: str  # e.g. "Q3 2026", used in the subject
+
+
 def _to_response(src: InvoiceSource) -> InvoiceSourceResponse:
     resp = InvoiceSourceResponse.model_validate(src)
     resp.gmail_connected = bool(src.gmail_token)
@@ -211,6 +217,43 @@ async def save_email_recipient(body: EmailRunRequest, db: Session = Depends(get_
     return {"to": to}
 
 
+async def _email_documents(db: Session, to: str, subject: str, intro: str, docs: list[Document]) -> dict:
+    """Send documents as attachments via the first Gmail source that can send."""
+    if not docs:
+        raise HTTPException(400, "No documents to send")
+    sender = invoice_email.pick_sender(db)
+    text = f"{intro}\n\n" + "\n".join(f"- {d.filename}" for d in docs)
+    try:
+        files = await asyncio.to_thread(
+            lambda: [(d.filename, s3.download_document(d.s3_key), d.content_type) for d in docs]
+        )
+        sent = await asyncio.to_thread(gmail_fetcher.send_files, sender.gmail_token, to, subject, text, files)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Emailing '{subject}' failed: {e}")
+        raise HTTPException(502, f"Sending failed: {e}")
+
+    invoice_email.remember_recipient(db, to)
+    return {"detail": f"Sent {len(docs)} document(s) to {to} in {sent} email(s)"}
+
+
+@router.post("/runs/email")
+async def email_runs(body: EmailRunsRequest, db: Session = Depends(get_db)):
+    """Send the documents of several runs (one quarter) in one go."""
+    to = invoice_email.clean_address(body.to)
+    if not body.run_ids:
+        raise HTTPException(400, "No runs selected")
+    docs = (
+        db.query(Document)
+        .filter(Document.run_id.in_(body.run_ids))
+        .order_by(Document.run_id, Document.id)
+        .all()
+    )
+    if not docs:
+        raise HTTPException(400, "These runs have no documents to send")
+    intro = f"{len(docs)} document(s) collected for {body.label} across {len(body.run_ids)} run(s):"
+    return await _email_documents(db, to, f"Invoices: {body.label}", intro, docs)
+
+
 @router.post("/runs/{run_id}/email")
 async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(get_db)):
     """Send every document of one run as attachments, via the first Gmail source that can send."""
@@ -221,25 +264,11 @@ async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(ge
     docs = db.query(Document).filter(Document.run_id == run_id).order_by(Document.id).all()
     if not docs:
         raise HTTPException(400, "This run has no documents to send")
-    sender = invoice_email.pick_sender(db)
 
     period = f"{run.date_from} to {run.date_to}" if run.date_from and run.date_to else "run"
     source_name = run.source.name if run.source else "auto-fetch"
-    subject = f"Invoices: {source_name}, {period}"
-    text = f"{len(docs)} document(s) collected from {source_name} ({period}):\n\n" + "\n".join(
-        f"- {d.filename}" for d in docs
-    )
-    try:
-        files = await asyncio.to_thread(
-            lambda: [(d.filename, s3.download_document(d.s3_key), d.content_type) for d in docs]
-        )
-        sent = await asyncio.to_thread(gmail_fetcher.send_files, sender.gmail_token, to, subject, text, files)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Emailing run {run_id} failed: {e}")
-        raise HTTPException(502, f"Sending failed: {e}")
-
-    invoice_email.remember_recipient(db, to)
-    return {"detail": f"Sent {len(docs)} document(s) to {to} in {sent} email(s)"}
+    intro = f"{len(docs)} document(s) collected from {source_name} ({period}):"
+    return await _email_documents(db, to, f"Invoices: {source_name}, {period}", intro, docs)
 
 
 # --- Gmail OAuth ---

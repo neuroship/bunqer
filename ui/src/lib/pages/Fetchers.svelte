@@ -262,6 +262,30 @@
     if (!emailTo) emailTo = savedEmailTo
   }
 
+  // Runs of a quarter group that have documents to send
+  function emailableRuns(group) {
+    return group.runs.filter(r => r.status !== 'running' && r.documents_new > 0)
+  }
+
+  function openEmailGroup(group) {
+    const sendable = emailableRuns(group)
+    emailTarget = {
+      group: true,
+      label: group.label,
+      run_ids: sendable.map(r => r.id),
+      documents_new: sendable.reduce((n, r) => n + r.documents_new, 0),
+      source_name: `${sendable.length} run${sendable.length === 1 ? '' : 's'}`,
+    }
+    if (!emailTo) emailTo = savedEmailTo
+  }
+
+  function openRunQuarter(group) {
+    const [y, q] = group.key.split('-').map(Number)
+    runYear = y
+    runQuarter = q
+    runTarget = 'all'
+  }
+
   async function saveEmailTo() {
     savingEmail = true
     try {
@@ -279,7 +303,9 @@
     if (!emailTarget || !emailTo.trim()) return
     sending = true
     try {
-      const res = await api.invoiceSources.emailRun(emailTarget.id, emailTo.trim())
+      const res = emailTarget.group
+        ? await api.invoiceSources.emailRuns(emailTarget.run_ids, emailTarget.label, emailTo.trim())
+        : await api.invoiceSources.emailRun(emailTarget.id, emailTo.trim())
       savedEmailTo = emailTo.trim()
       window.showToast?.(res.detail, 'success')
       emailTarget = null
@@ -556,9 +582,30 @@
             <tbody>
               {#each runGroups as group (group.key)}
                 <tr class="bg-va-hover/50">
-                  <td colspan="9" class="py-1.5 text-xs font-semibold text-va-text">
+                  <td colspan="8" class="py-1.5 text-xs font-semibold text-va-text">
                     <span class="icon-[tabler--calendar] w-3.5 h-3.5 align-text-bottom mr-1"></span>{group.label}
                     <span class="text-va-muted font-normal">· {group.runs.length} run{group.runs.length === 1 ? '' : 's'}</span>
+                  </td>
+                  <td class="py-1.5 text-right whitespace-nowrap">
+                    {#if emailableRuns(group).length > 0}
+                      <button
+                        onclick={() => openEmailGroup(group)}
+                        class="text-va-muted hover:text-va-accent mr-1"
+                        title="Email all invoices of {group.label}"
+                      >
+                        <span class="icon-[tabler--mail-forward] w-4 h-4"></span>
+                      </button>
+                    {/if}
+                    {#if group.key !== 'none' && sources.length > 0}
+                      <button
+                        onclick={() => openRunQuarter(group)}
+                        class="text-va-muted hover:text-va-success mr-1"
+                        disabled={runningIds.size > 0}
+                        title="Collect {group.label} again from all sources"
+                      >
+                        <span class="icon-[tabler--player-play] w-4 h-4"></span>
+                      </button>
+                    {/if}
                   </td>
                 </tr>
               {#each group.runs as run (run.id)}
@@ -675,9 +722,9 @@
 </Modal>
 
 <!-- Email run documents modal -->
-<Modal show={!!emailTarget} title="Email invoices from {emailTarget?.source_name || ''}" size="sm" onClose={() => emailTarget = null}>
+<Modal show={!!emailTarget} title={emailTarget?.group ? `Email all invoices of ${emailTarget.label}` : `Email invoices from ${emailTarget?.source_name || ''}`} size="sm" onClose={() => emailTarget = null}>
   {#if emailTarget}
-    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of this run ({quarterLabel(emailTarget)}) as attachments{emailSender ? ` from ${emailSender}` : ''}.</p>
+    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of {emailTarget.group ? `${emailTarget.source_name} in ${emailTarget.label}` : `this run (${quarterLabel(emailTarget)})`} as attachments{emailSender ? ` from ${emailSender}` : ''}.</p>
     {#if !emailSender}
       <div class="rounded-md border border-va-warning/40 bg-va-warning/10 p-3 mb-3 text-xs text-va-text">
         {#if emailReconnect}

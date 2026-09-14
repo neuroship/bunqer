@@ -514,6 +514,7 @@ export const invoiceSources = {
   emailRecipient: () => request('/invoice-sources/email/recipient'),
   saveEmailRecipient: (to) => request('/invoice-sources/email/recipient', { method: 'PUT', body: { to } }),
   emailRun: (runId, to) => request(`/invoice-sources/runs/${runId}/email`, { method: 'POST', body: { to }, timeoutMs: 180_000 }),
+  emailRuns: (runIds, label, to) => request('/invoice-sources/runs/email', { method: 'POST', body: { to, run_ids: runIds, label }, timeoutMs: 300_000 }),
 }
 
 // Provider credentials (Browserbase, 1Password, LLM, Google)

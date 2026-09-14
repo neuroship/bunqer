@@ -114,6 +114,36 @@ def test_sends_all_run_documents_and_remembers_recipient(env):
     }
 
 
+def test_emails_several_runs_at_once(env):
+    _add_gmail(env, "work", _token(READ, SEND))
+    from vibe_accountant.models import Document, InvoiceFetchRun
+
+    db = env["SessionLocal"]()
+    other = InvoiceFetchRun(source_id=1, status="completed")
+    db.add(other)
+    db.flush()
+    db.add(Document(
+        filename="other.pdf", s3_key="documents/other.pdf", content_type="application/pdf",
+        file_size=5, doc_type="purchase_invoice", run_id=other.id, source_id=1,
+    ))
+    db.commit()
+    other_id = other.id
+    db.close()
+
+    r = env["client"].post(
+        "/invoice-sources/runs/email",
+        json={"to": "me@example.com", "run_ids": [env["run_id"], other_id], "label": "Q3 2026"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["detail"] == "Sent 3 document(s) to me@example.com in 1 email(s)"
+    msg = message_from_bytes(base64.urlsafe_b64decode(env["sent"][0]["raw"]))
+    assert msg["Subject"] == "Invoices: Q3 2026"
+    assert [p.get_filename() for p in msg.walk() if p.get_filename()] == ["inv0.pdf", "inv1.pdf", "other.pdf"]
+
+    r = env["client"].post("/invoice-sources/runs/email", json={"to": "me@example.com", "run_ids": [999], "label": "x"})
+    assert r.status_code == 400
+
+
 def test_requires_gmail_source_with_send_permission(env):
     r = env["client"].post(f"/invoice-sources/runs/{env['run_id']}/email", json={"to": "me@example.com"})
     assert r.status_code == 400
