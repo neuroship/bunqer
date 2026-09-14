@@ -4,6 +4,7 @@ attachments or from the email body when there is no attachment."""
 import base64
 import html
 import json
+import os
 import re
 from datetime import date, timedelta
 
@@ -16,6 +17,8 @@ from ..logger import logger
 from . import llm
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# Google may return extra scopes (e.g. openid); without this oauthlib raises on the mismatch.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DEFAULT_QUERY = "(invoice OR factuur OR receipt OR bill OR bon)"
 MAX_MESSAGES = 100
 
@@ -37,7 +40,8 @@ def _client_config(client_id: str, client_secret: str, redirect_uri: str) -> dic
 
 def build_auth_url(client_id: str, client_secret: str, redirect_uri: str, state: str) -> str:
     flow = Flow.from_client_config(
-        _client_config(client_id, client_secret, redirect_uri), scopes=SCOPES, redirect_uri=redirect_uri
+        _client_config(client_id, client_secret, redirect_uri), scopes=SCOPES, redirect_uri=redirect_uri,
+        autogenerate_code_verifier=False,
     )
     url, _ = flow.authorization_url(access_type="offline", prompt="consent", state=state)
     return url
@@ -46,7 +50,8 @@ def build_auth_url(client_id: str, client_secret: str, redirect_uri: str, state:
 def exchange_code(client_id: str, client_secret: str, redirect_uri: str, code: str) -> tuple[str, str]:
     """Exchange auth code for tokens. Returns (authorized_user_json, email)."""
     flow = Flow.from_client_config(
-        _client_config(client_id, client_secret, redirect_uri), scopes=SCOPES, redirect_uri=redirect_uri
+        _client_config(client_id, client_secret, redirect_uri), scopes=SCOPES, redirect_uri=redirect_uri,
+        autogenerate_code_verifier=False,
     )
     flow.fetch_token(code=code)
     creds = flow.credentials
