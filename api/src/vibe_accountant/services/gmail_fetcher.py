@@ -161,6 +161,10 @@ async def triage(providers: dict[str, str], description: str, candidates: list[d
 Below are emails that matched a broad search. Select the ones that are an invoice, receipt or
 payment confirmation for that request (not newsletters, reminders, marketing or unrelated mail).
 
+Emails with 0 pdf attachments still count when the email body itself is the receipt or invoice
+(Apple, Google, app stores and many SaaS vendors send these as HTML mail). Such emails are
+turned into a PDF afterwards, so select them like any other invoice.
+
 {listing}
 
 Return JSON only: {{"selected": [<index>, ...]}}"""
@@ -178,8 +182,8 @@ Return JSON only: {{"selected": [<index>, ...]}}"""
 # --- Turning a message into PDFs ---
 
 
-def _body_text(msg: dict) -> str:
-    """Prefer text/plain, fall back to stripped text/html."""
+def _body_parts(msg: dict) -> tuple[str, str]:
+    """(text/plain, text/html) bodies of a message, either may be empty."""
     plain, html_body = "", ""
     for p in _walk_parts(msg.get("payload", {})):
         data = p.get("body", {}).get("data")
@@ -190,8 +194,10 @@ def _body_text(msg: dict) -> str:
             plain = text
         elif p.get("mimeType") == "text/html" and not html_body:
             html_body = text
-    if plain.strip():
-        return plain
+    return plain, html_body
+
+
+def _html_to_text(html_body: str) -> str:
     text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html_body, flags=re.S | re.I)
     text = re.sub(r"<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
@@ -199,20 +205,67 @@ def _body_text(msg: dict) -> str:
     return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
 
 
-def _email_to_pdf(msg: dict) -> bytes:
-    """Render an email (headers + body text) as a simple PDF so OCR/extraction can read it."""
+def _body_text(msg: dict) -> str:
+    """Prefer text/plain, fall back to stripped text/html."""
+    plain, html_body = _body_parts(msg)
+    return plain if plain.strip() else _html_to_text(html_body)
+
+
+def _renderable_html(html_body: str) -> str:
+    """Trim an email's HTML to what fpdf2's write_html can lay out: drop head/style/script,
+    remote images and comments; keep text, headings, paragraphs, tables and line breaks."""
+    body = re.sub(r"<head[^>]*>.*?</head>", "", html_body, flags=re.S | re.I)
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", body, flags=re.S | re.I)
+    body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+    body = re.sub(r"<img[^>]*>", "", body, flags=re.I)
+    body = re.sub(r"</?(html|body|span|button|font|center)[^>]*>", "", body, flags=re.I)
+    body = re.sub(r"<(div|section|header|footer)[^>]*>", "", body, flags=re.I)
+    body = re.sub(r"</(div|section|header|footer)>", "<br>", body, flags=re.I)
+    return body.strip()
+
+
+# fpdf2's built-in fonts are Latin-1; keep the symbols that matter on an invoice readable.
+_SYMBOLS = str.maketrans({"\u20ac": "EUR ", "\u2022": "*", "\u203a": ">", "\u2013": "-", "\u2014": "-",
+                          "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u00a0": " "})
+
+
+def _latin1(text: str) -> str:
+    text = re.sub(r"EUR\s+", "EUR ", text.translate(_SYMBOLS))
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _new_pdf():
     from fpdf import FPDF
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Helvetica", size=10)
+    return pdf
+
+
+def _email_to_pdf(msg: dict) -> bytes:
+    """Render an email as a PDF so it can serve as the invoice: the HTML body laid out
+    with fpdf2 when there is one, else the plain text. Headers go on top either way."""
     header = (
         f"From: {_header(msg, 'from')}\nTo: {_header(msg, 'to')}\nDate: {_header(msg, 'date')}\n"
-        f"Subject: {_header(msg, 'subject')}\n\n"
+        f"Subject: {_header(msg, 'subject')}\n"
     )
-    text = (header + _body_text(msg)).encode("latin-1", errors="replace").decode("latin-1")
-    pdf.multi_cell(0, 5, text)
+    plain, html_body = _body_parts(msg)
+
+    if html_body.strip():
+        try:
+            pdf = _new_pdf()
+            pdf.multi_cell(0, 5, _latin1(header))
+            pdf.ln(3)
+            pdf.write_html(_latin1(_renderable_html(html_body)))
+            return bytes(pdf.output())
+        except Exception as e:  # noqa: BLE001 - fall back to plain text for odd markup
+            logger.warning(f"HTML render failed for '{_header(msg, 'subject')}', using text: {e}")
+
+    pdf = _new_pdf()
+    text = plain if plain.strip() else _html_to_text(html_body)
+    pdf.multi_cell(0, 5, _latin1(header + "\n" + text))
     return bytes(pdf.output())
 
 
