@@ -117,7 +117,6 @@
     { id: 'account', label: 'Account', align: 'left' },
     { id: 'counterparty', label: 'Counterparty', align: 'left' },
     { id: 'description', label: 'Description', align: 'left' },
-    { id: 'type', label: 'Type', align: 'left' },
     { id: 'amount', label: 'Amount', align: 'right' },
     { id: 'balance_after', label: 'Balance After', align: 'right' },
     { id: 'location', label: 'Location', align: 'left' },
@@ -125,7 +124,7 @@
     { id: 'category', label: 'Category', align: 'left' },
     { id: 'tag', label: 'Tag', align: 'left' }
   ]
-  const defaultVisibleColumns = ['date', 'account', 'counterparty', 'description', 'type', 'amount']
+  const defaultVisibleColumns = ['date', 'account', 'counterparty', 'description', 'amount']
   
   let visibleColumns = $state(loadVisibleColumns())
   let showColumnSettings = $state(false)
@@ -674,7 +673,7 @@
           Export
         </button>
         {#if showExportMenu}
-          <div class="absolute right-0 top-full mt-2 w-36 bg-va-card border border-va-border rounded-lg shadow-lg z-10 p-1">
+          <div class="absolute right-0 top-full mt-2 w-36 bg-va-subtle border border-va-border rounded-lg shadow-lg z-10 p-1">
             <button onclick={() => exportTransactions('csv')} class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover">
               <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M9 6v12M15 6v12M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
@@ -708,7 +707,7 @@
           </svg>
         </button>
         {#if showColumnSettings}
-          <div class="absolute right-0 top-full mt-2 w-48 bg-va-card border border-va-border rounded-lg shadow-lg z-10">
+          <div class="absolute right-0 top-full mt-2 w-48 bg-va-subtle border border-va-border rounded-lg shadow-lg z-10">
             <div class="p-2">
               <div class="text-xs text-va-muted font-medium px-2 py-1 mb-1">Show columns</div>
               {#each allColumns as column}
@@ -968,20 +967,6 @@
                 {#if isColumnVisible('description')}
                   <td class="py-3 px-3 text-sm text-va-muted max-w-xs break-words whitespace-normal">
                     {transaction.description || '-'}
-                  </td>
-                {/if}
-                {#if isColumnVisible('type')}
-                  <td class="py-3 px-3 whitespace-nowrap">
-                    {#if transaction.type}
-                      <span class="text-xs px-2 py-1 rounded-md bg-va-hover border border-va-border text-va-muted">
-                        {transaction.type}
-                      </span>
-                    {/if}
-                    {#if transaction.sub_type}
-                      <span class="text-xs px-2 py-1 rounded-md bg-va-hover border border-va-border text-va-muted ml-1">
-                        {transaction.sub_type}
-                      </span>
-                    {/if}
                   </td>
                 {/if}
                 {#if isColumnVisible('amount')}
