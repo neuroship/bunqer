@@ -374,6 +374,11 @@
                   <span class="px-2 py-1 rounded-md text-xs font-medium border {getStatusColor(invoice.status)}">
                     {invoice.status}
                   </span>
+                  {#if invoice.paid_transaction}
+                    <div class="mt-1 text-xs text-va-muted whitespace-nowrap" class:privacy-blur={privacyOn} title={invoice.paid_transaction.description || ''}>
+                      {formatDate(invoice.paid_transaction.transaction_date)} · {invoice.paid_transaction.counterparty_name || 'unknown'} · {formatCurrency(invoice.paid_transaction.amount)}
+                    </div>
+                  {/if}
                 </td>
                 <td class="py-3 px-3 text-right text-sm font-medium text-va-text">
                   {formatCurrency(invoice.total_amount)}

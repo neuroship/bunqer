@@ -39,6 +39,9 @@ class Invoice(Base):
     vat_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    paid_transaction_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -50,6 +53,9 @@ class Invoice(Base):
     client: Mapped["Client"] = relationship("Client", back_populates="invoices")
     items: Mapped[list["InvoiceItem"]] = relationship(
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"
+    )
+    paid_transaction: Mapped["Transaction | None"] = relationship(
+        "Transaction", lazy="joined"
     )
 
 
@@ -124,6 +130,19 @@ class InvoiceUpdate(BaseModel):
     items: list[InvoiceItemCreate] | None = None
 
 
+class PaidTransactionResponse(BaseModel):
+    """The transaction that paid an invoice."""
+
+    id: int
+    transaction_date: datetime
+    amount: Decimal
+    counterparty_name: str | None
+    description: str | None
+
+    class Config:
+        from_attributes = True
+
+
 class InvoiceResponse(BaseModel):
     """Schema for invoice response."""
 
@@ -137,6 +156,7 @@ class InvoiceResponse(BaseModel):
     vat_amount: Decimal
     total_amount: Decimal
     notes: str | None
+    paid_transaction: PaidTransactionResponse | None = None
     items: list[InvoiceItemResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -147,3 +167,4 @@ class InvoiceResponse(BaseModel):
 
 # Import to avoid circular imports
 from .client import Client  # noqa: E402, F401
+from .transaction import Transaction  # noqa: E402, F401

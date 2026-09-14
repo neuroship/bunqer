@@ -74,10 +74,62 @@ def test_ignores_outgoing_and_unrelated(db):
 def test_ignores_transactions_before_invoice_date(db):
     from vibe_accountant.services import match_invoices_to_transactions
 
-    invoice = _seed(db, "INV-2026-001", txn_date=datetime(2026, 8, 30))
+    invoice = _seed(db, "INV-2026-001", txn_date=datetime(2026, 7, 30))
     assert match_invoices_to_transactions(db) == []
     db.refresh(invoice)
     assert invoice.status == "sent"
+
+
+def test_allows_payment_shortly_before_invoice_date(db):
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "March invoice", txn_date=datetime(2026, 8, 25))
+    paid = match_invoices_to_transactions(db)
+    assert [i.id for i in paid] == [invoice.id]
+
+
+def test_records_paying_transaction(db):
+    from vibe_accountant.models import Transaction
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "Bank transfer")
+    match_invoices_to_transactions(db)
+    db.refresh(invoice)
+    txn = db.query(Transaction).one()
+    assert invoice.paid_transaction_id == txn.id
+    assert invoice.paid_transaction.amount == Decimal("121.00")
+
+
+def test_links_already_paid_invoice_without_counting_it(db):
+    from vibe_accountant.models import Transaction
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    invoice = _seed(db, "Bank transfer", status="paid")
+    assert match_invoices_to_transactions(db) == []
+    db.refresh(invoice)
+    assert invoice.paid_transaction_id == db.query(Transaction).one().id
+
+
+def test_linked_transaction_is_not_reused(db):
+    from vibe_accountant.models import Invoice, Transaction
+    from vibe_accountant.services import match_invoices_to_transactions
+
+    first = _seed(db, "Bank transfer", status="paid")
+    first.paid_transaction_id = db.query(Transaction).one().id
+    second = Invoice(
+        client_id=first.client_id,
+        invoice_number="INV-2026-002",
+        invoice_date=date(2026, 9, 1),
+        due_date=date(2026, 10, 1),
+        status="sent",
+        total_amount=Decimal("121.00"),
+    )
+    db.add(second)
+    db.commit()
+
+    assert match_invoices_to_transactions(db) == []
+    db.refresh(second)
+    assert second.status == "sent"
 
 
 def test_skips_already_paid(db):
