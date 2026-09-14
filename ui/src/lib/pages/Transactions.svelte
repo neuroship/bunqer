@@ -111,7 +111,8 @@
   let createDraftPaymentModal = $state()
 
   // Column configuration
-  const STORAGE_KEY = 'transactions-visible-columns'
+  // v2: the document column became a default; bumping the key resets stored preferences once
+  const STORAGE_KEY = 'transactions-visible-columns-v2'
   const allColumns = [
     { id: 'date', label: 'Date', align: 'left' },
     { id: 'account', label: 'Account', align: 'left' },
@@ -124,7 +125,7 @@
     { id: 'category', label: 'Category', align: 'left' },
     { id: 'tag', label: 'Tag', align: 'left' }
   ]
-  const defaultVisibleColumns = ['date', 'account', 'counterparty', 'description', 'amount']
+  const defaultVisibleColumns = ['date', 'account', 'counterparty', 'description', 'amount', 'document']
   
   let visibleColumns = $state(loadVisibleColumns())
   let showColumnSettings = $state(false)
