@@ -127,8 +127,11 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
             for doc_id in new_ids:
                 await asyncio.to_thread(_process_document, doc_id, settings.database_url)
             log("OCR + extraction complete")
-            run.documents_matched = match_documents_to_transactions(db)
-            log(f"{run.documents_matched} matched to transactions")
+            match_documents_to_transactions(db)
+            run.documents_matched = (
+                db.query(Document).filter(Document.run_id == run.id, Document.transactions.any()).count()
+            )
+            log(f"{run.documents_matched} of this run's documents matched to transactions")
 
         run.status = RunStatus.COMPLETED.value
         source.last_status = RunStatus.COMPLETED.value
