@@ -2,10 +2,9 @@
 
 import asyncio
 from datetime import datetime, timedelta
-
-from fastapi import APIRouter, Depends, HTTPException, Query
 from urllib.parse import quote
 
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, selectinload
