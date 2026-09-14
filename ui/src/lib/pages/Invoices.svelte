@@ -20,6 +20,8 @@
   // Email PDF modal
   let emailTarget = $state(null)
   let emailTo = $state('')
+  let emailSender = $state(null)      // Gmail address that will send, or null
+  let emailReconnect = $state(null)   // {id, name} of a source that must be reconnected to send
   let sending = $state(false)
   let matching = $state(false)
 
@@ -233,12 +235,22 @@
 
   async function openEmail(invoice) {
     emailTarget = invoice
-    if (!emailTo) {
-      try {
-        emailTo = (await api.invoiceSources.emailRecipient()).to || ''
-      } catch {
-        // prefill only
-      }
+    try {
+      const status = await api.invoiceSources.emailRecipient()
+      if (!emailTo) emailTo = status.to || ''
+      emailSender = status.sender
+      emailReconnect = status.reconnect
+    } catch {
+      // prefill only
+    }
+  }
+
+  async function reconnectGmail() {
+    try {
+      const { url } = await api.invoiceSources.gmailAuthUrl(emailReconnect.id)
+      window.location.href = url
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
     }
   }
 
@@ -639,11 +651,21 @@
 <!-- Email PDF modal -->
 <Modal show={!!emailTarget} title="Email invoice {emailTarget?.invoice_number || ''}" size="sm" onClose={() => emailTarget = null}>
   {#if emailTarget}
-    <p class="text-xs text-va-muted mb-3">Sends the PDF as an attachment, from your connected Gmail account.</p>
+    <p class="text-xs text-va-muted mb-3">Sends the PDF as an attachment{emailSender ? ` from ${emailSender}` : ''}.</p>
+    {#if !emailSender}
+      <div class="rounded-md border border-va-warning/40 bg-va-warning/10 p-3 mb-3 text-xs text-va-text">
+        {#if emailReconnect}
+          <p>Gmail on '{emailReconnect.name}' was connected before sending was supported. Reconnect once to grant the send permission.</p>
+          <Button variant="secondary" onclick={reconnectGmail}>Reconnect Gmail</Button>
+        {:else}
+          <p>Connect a Gmail source under Auto-Fetch first; it is used to send the email.</p>
+        {/if}
+      </div>
+    {/if}
     <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
     <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
-      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim()}>Send</Button>
+      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim() || !emailSender}>Send</Button>
     </div>
   {/if}
 </Modal>

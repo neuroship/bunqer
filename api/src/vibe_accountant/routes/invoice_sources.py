@@ -45,6 +45,7 @@ class EmailRunRequest(BaseModel):
 def _to_response(src: InvoiceSource) -> InvoiceSourceResponse:
     resp = InvoiceSourceResponse.model_validate(src)
     resp.gmail_connected = bool(src.gmail_token)
+    resp.gmail_can_send = resp.gmail_connected and gmail_fetcher.can_send(src.gmail_token)
     if is_running(src.id):
         resp.last_status = "running"
     return resp
@@ -192,8 +193,22 @@ async def run_documents(run_id: int, db: Session = Depends(get_db)):
 
 @router.get("/email/recipient")
 async def email_recipient(db: Session = Depends(get_db)):
-    """Where invoices were last emailed to, for prefilling the form."""
-    return {"to": invoice_email.get_recipient(db)}
+    """The saved address invoices are emailed to, plus which Gmail source will send them.
+    `reconnect` names a connected source that lacks the send permission."""
+    sender, reconnect = invoice_email.find_sender(db)
+    return {
+        "to": invoice_email.get_recipient(db),
+        "sender": sender.gmail_email if sender else None,
+        "reconnect": {"id": reconnect.id, "name": reconnect.name} if reconnect else None,
+    }
+
+
+@router.put("/email/recipient")
+async def save_email_recipient(body: EmailRunRequest, db: Session = Depends(get_db)):
+    """Save the address invoices are emailed to."""
+    to = invoice_email.clean_address(body.to)
+    invoice_email.remember_recipient(db, to)
+    return {"to": to}
 
 
 @router.post("/runs/{run_id}/email")

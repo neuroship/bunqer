@@ -132,9 +132,7 @@ def test_sends_pdf_and_remembers_recipient(env):
     assert attachments[0].get_payload(decode=True).startswith(b"%PDF-")
 
     # Same remembered address as the auto-fetch run email
-    assert env["client"].get("/invoice-sources/email/recipient").json() == {
-        "to": "books@example.com"
-    }
+    assert env["client"].get("/invoice-sources/email/recipient").json()["to"] == "books@example.com"
 
 
 def test_requires_send_permission_and_valid_input(env):

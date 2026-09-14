@@ -122,6 +122,7 @@ class InvoiceSourceResponse(BaseModel):
     collect_description: str | None = None
     gmail_email: str | None = None
     gmail_connected: bool = False
+    gmail_can_send: bool = False
     last_run_at: datetime | None = None
     last_status: str | None = None
     created_at: datetime

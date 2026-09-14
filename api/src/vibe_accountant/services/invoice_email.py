@@ -29,19 +29,27 @@ def remember_recipient(db: Session, to: str) -> None:
     db.commit()
 
 
-def pick_sender(db: Session) -> InvoiceSource:
-    """The first Gmail source whose grant allows sending mail."""
+def find_sender(db: Session) -> tuple[InvoiceSource | None, InvoiceSource | None]:
+    """(sender, needs_reconnect): the first Gmail source that can send, or else the first
+    connected one, which must be reconnected to grant the send permission."""
     connected = (
         db.query(InvoiceSource)
         .filter(InvoiceSource.gmail_token.isnot(None))
         .order_by(InvoiceSource.created_at)
         .all()
     )
-    if not connected:
-        raise HTTPException(400, "Connect a Gmail source first; it is used to send the email")
     sender = next((s for s in connected if gmail_fetcher.can_send(s.gmail_token)), None)
-    if not sender:
+    if sender:
+        return sender, None
+    return None, (connected[0] if connected else None)
+
+
+def pick_sender(db: Session) -> InvoiceSource:
+    sender, reconnect = find_sender(db)
+    if sender:
+        return sender
+    if reconnect:
         raise HTTPException(
-            400, f"Reconnect Gmail on '{connected[0].name}' to allow sending email (new permission)"
+            400, f"Reconnect Gmail on '{reconnect.name}' to allow sending email (new permission)"
         )
-    return sender
+    raise HTTPException(400, "Connect a Gmail source first; it is used to send the email")

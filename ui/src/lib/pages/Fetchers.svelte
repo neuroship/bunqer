@@ -27,10 +27,14 @@
   let previewData = $state(null)
   let previewLoading = $state(false)
 
-  // Email run documents modal
+  // Email run documents modal; emailTo is the saved "send invoices to" address
   let emailTarget = $state(null)
   let emailTo = $state('')
+  let savedEmailTo = $state('')
+  let emailSender = $state(null)      // Gmail address that will send, or null
+  let emailReconnect = $state(null)   // {id, name} of a source that must be reconnected to send
   let sending = $state(false)
+  let savingEmail = $state(false)
 
   // Run quarter modal (runTarget = a source, or 'all')
   let runTarget = $state(null)
@@ -63,9 +67,17 @@
 
   async function loadAll() {
     try {
-      const [s, r] = await Promise.all([api.invoiceSources.list(), api.invoiceSources.runs({ limit: 30 })])
+      const [s, r, e] = await Promise.all([
+        api.invoiceSources.list(),
+        api.invoiceSources.runs({ limit: 30 }),
+        api.invoiceSources.emailRecipient(),
+      ])
       sources = s
       runs = r
+      savedEmailTo = e.to || ''
+      emailSender = e.sender
+      emailReconnect = e.reconnect
+      if (!emailTo) emailTo = savedEmailTo
       const active = new Set(s.filter(x => x.last_status === 'running').map(x => x.id))
       runningIds = active
       if (active.size > 0 && !pollInterval) {
@@ -217,14 +229,21 @@
     }
   }
 
-  async function openEmail(run) {
+  function openEmail(run) {
     emailTarget = run
-    if (!emailTo) {
-      try {
-        emailTo = (await api.invoiceSources.emailRecipient()).to || ''
-      } catch {
-        // prefill only
-      }
+    if (!emailTo) emailTo = savedEmailTo
+  }
+
+  async function saveEmailTo() {
+    savingEmail = true
+    try {
+      savedEmailTo = (await api.invoiceSources.saveEmailRecipient(emailTo.trim())).to
+      emailTo = savedEmailTo
+      window.showToast?.('Address saved', 'success')
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      savingEmail = false
     }
   }
 
@@ -233,6 +252,7 @@
     sending = true
     try {
       const res = await api.invoiceSources.emailRun(emailTarget.id, emailTo.trim())
+      savedEmailTo = emailTo.trim()
       window.showToast?.(res.detail, 'success')
       emailTarget = null
     } catch (error) {
@@ -404,6 +424,11 @@
                   {/if}
                 </p>
                 <div class="flex items-center gap-2 mt-2 text-xs text-va-muted">
+                  {#if src.kind === 'gmail' && src.gmail_connected && !src.gmail_can_send}
+                    <button onclick={() => connectGmail(src)} class="badge badge-sm badge-warning gap-1" title="Reconnect to allow sending email">
+                      <span class="icon-[tabler--alert-triangle] w-3 h-3"></span> reconnect to send
+                    </button>
+                  {/if}
                   {#if runningIds.has(src.id)}
                     <span class="badge badge-sm badge-info">running</span>
                   {:else if src.last_status}
@@ -421,6 +446,11 @@
                   <span class="icon-[tabler--plug-connected] w-4 h-4"></span>
                 </button>
               {:else if src.kind === 'gmail'}
+                {#if !src.gmail_can_send}
+                  <button onclick={() => connectGmail(src)} class="p-1.5 rounded-md text-va-warning hover:bg-va-hover" title="Reconnect Gmail to allow sending email">
+                    <span class="icon-[tabler--refresh-alert] w-4 h-4"></span>
+                  </button>
+                {/if}
                 <button onclick={() => openPreview(src)} class="p-1.5 rounded-md text-va-muted hover:text-va-accent hover:bg-va-hover" title="Preview what a quarter would collect">
                   <span class="icon-[tabler--eye-search] w-4 h-4"></span>
                 </button>
@@ -449,6 +479,26 @@
     </div>
 
     <Card>
+      <div class="flex flex-col sm:flex-row sm:items-end gap-2 mb-6">
+        <div class="flex-1">
+          <Input type="email" label="Send invoices to" bind:value={emailTo} placeholder="accountant@example.com" />
+          <p class="text-xs text-va-muted -mt-2">Prefilled when you email a run's invoices or an invoice PDF.</p>
+          {#if emailSender}
+            <p class="text-xs text-va-muted mt-1">Sent from {emailSender}.</p>
+          {:else if emailReconnect}
+            <p class="text-xs text-va-warning mt-1 flex items-center gap-1">
+              <span class="icon-[tabler--alert-triangle] w-3.5 h-3.5"></span>
+              Gmail on '{emailReconnect.name}' cannot send email yet.
+              <button onclick={() => connectGmail(emailReconnect)} class="underline hover:text-va-text">Reconnect</button>
+            </p>
+          {:else}
+            <p class="text-xs text-va-warning mt-1">Connect a Gmail source; it is used to send the email.</p>
+          {/if}
+        </div>
+        <Button variant="secondary" onclick={saveEmailTo} loading={savingEmail} disabled={!emailTo.trim() || emailTo.trim() === savedEmailTo}>
+          <span class="icon-[tabler--device-floppy] w-4 h-4"></span> Save
+        </Button>
+      </div>
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-base font-semibold text-va-text">Recent runs</h2>
         {#if runs.some(r => r.status === 'failed' || (r.status !== 'running' && r.documents_new === 0))}
@@ -591,11 +641,23 @@
 <!-- Email run documents modal -->
 <Modal show={!!emailTarget} title="Email invoices from {emailTarget?.source_name || ''}" size="sm" onClose={() => emailTarget = null}>
   {#if emailTarget}
-    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of this run ({quarterLabel(emailTarget)}) as attachments, from your connected Gmail account.</p>
+    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of this run ({quarterLabel(emailTarget)}) as attachments{emailSender ? ` from ${emailSender}` : ''}.</p>
+    {#if !emailSender}
+      <div class="rounded-md border border-va-warning/40 bg-va-warning/10 p-3 mb-3 text-xs text-va-text">
+        {#if emailReconnect}
+          <p>Gmail on '{emailReconnect.name}' was connected before sending was supported. Reconnect once to grant the send permission.</p>
+          <Button variant="secondary" onclick={() => connectGmail(emailReconnect)}>
+            <span class="icon-[tabler--refresh-alert] w-4 h-4"></span> Reconnect Gmail
+          </Button>
+        {:else}
+          <p>Connect a Gmail source first; it is used to send the email.</p>
+        {/if}
+      </div>
+    {/if}
     <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
     <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
-      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim()}>
+      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim() || !emailSender}>
         <span class="icon-[tabler--send] w-4 h-4"></span> Send
       </Button>
     </div>

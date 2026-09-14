@@ -109,7 +109,9 @@ def test_sends_all_run_documents_and_remembers_recipient(env):
     assert [p.get_filename() for p in attachments] == ["inv0.pdf", "inv1.pdf"]
     assert attachments[0].get_payload(decode=True) == b"%PDF-documents/0.pdf"
 
-    assert env["client"].get("/invoice-sources/email/recipient").json() == {"to": "me@example.com"}
+    assert env["client"].get("/invoice-sources/email/recipient").json() == {
+        "to": "me@example.com", "sender": "work@x", "reconnect": None,
+    }
 
 
 def test_requires_gmail_source_with_send_permission(env):
@@ -147,3 +149,27 @@ def test_splits_large_runs_into_several_emails(monkeypatch):
     assert gmail_fetcher.send_files(_token(SEND), "me@example.com", "Invoices", "body", files) == 2
     subjects = [message_from_bytes(base64.urlsafe_b64decode(b["raw"]))["Subject"] for b in sent]
     assert subjects == ["Invoices (1/2)", "Invoices (2/2)"]
+
+
+def test_recipient_can_be_saved_without_sending(env):
+    assert env["client"].get("/invoice-sources/email/recipient").json()["to"] is None
+    r = env["client"].put("/invoice-sources/email/recipient", json={"to": " books@example.com "})
+    assert r.status_code == 200
+    assert r.json() == {"to": "books@example.com"}
+    assert env["client"].get("/invoice-sources/email/recipient").json()["to"] == "books@example.com"
+    assert env["client"].put("/invoice-sources/email/recipient", json={"to": "nope"}).status_code == 400
+
+
+def test_recipient_status_points_at_source_needing_reconnect(env):
+    _add_gmail(env, "old", _token(READ))
+    status = env["client"].get("/invoice-sources/email/recipient").json()
+    assert status["sender"] is None
+    assert status["reconnect"]["name"] == "old"
+    src = next(s for s in env["client"].get("/invoice-sources").json() if s["name"] == "old")
+    assert src["gmail_connected"] is True
+    assert src["gmail_can_send"] is False
+
+    _add_gmail(env, "work", _token(READ, SEND))
+    status = env["client"].get("/invoice-sources/email/recipient").json()
+    assert status["sender"] == "work@x"
+    assert status["reconnect"] is None
