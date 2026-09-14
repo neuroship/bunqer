@@ -78,7 +78,8 @@ class TransactionUpdate(BaseModel):
 @router.get("/filters")
 async def get_filter_options(db: Session = Depends(get_db)):
     """Get available filter options for transactions."""
-    from sqlalchemy import func, distinct
+    from sqlalchemy import distinct
+
     from ..models import Account, Category
 
     # Get unique types
@@ -384,7 +385,7 @@ async def get_transaction_stats(
     db: Session = Depends(get_db),
 ):
     """Get transaction statistics including category breakdown."""
-    from sqlalchemy import func, case
+    from sqlalchemy import case, func
 
     from ..models import Category
 
@@ -478,11 +479,23 @@ async def match_documents(db: Session = Depends(get_db)):
     """Match documents to transactions by reference or amount+name."""
     from ..services import match_documents_to_transactions
 
-    matched = match_documents_to_transactions(db)
-    return {
-        "matched": matched,
-        "message": f"Matched {matched} document(s) to transactions" if matched else "No new matches found",
-    }
+    report = match_documents_to_transactions(db)
+    n, amb = report.matched, len(report.ambiguous)
+    message = f"Matched {n} document(s) to transactions" if n else "No new matches found"
+    if amb:
+        message += f"; {amb} document(s) need a manual pick"
+    return {**report.as_dict(), "message": message}
+
+
+@router.post("/match-documents/repair")
+async def repair_document_matches(db: Session = Depends(get_db)):
+    """Unlink document-transaction links that break the matching rules, then re-match."""
+    from ..services import match_documents_to_transactions
+    from ..services.document_matcher import unlink_bad_links
+
+    removed = unlink_bad_links(db)
+    report = match_documents_to_transactions(db)
+    return {"unlinked": removed, **report.as_dict()}
 
 
 @router.get("/match-suggestions")
@@ -552,9 +565,10 @@ async def update_transaction(
 @router.get("/{transaction_id}/raw")
 async def get_transaction_raw_json(transaction_id: int, db: Session = Depends(get_db)):
     """Get the raw JSON from bunq API for a transaction."""
+    import json
+
     from fastapi import HTTPException
     from fastapi.responses import JSONResponse
-    import json
 
     transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
     if not transaction:

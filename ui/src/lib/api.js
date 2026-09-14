@@ -293,6 +293,7 @@ export const transactions = {
   },
   applyRules: (force = false) => request(`/transactions/apply-rules${force ? '?force=true' : ''}`, { method: 'POST' }),
   matchDocuments: () => request('/transactions/match-documents', { method: 'POST' }),
+  repairDocumentMatches: () => request('/transactions/match-documents/repair', { method: 'POST' }),
   matchSuggestions: () => request('/transactions/match-suggestions'),
   /** Download every transaction matching params as CSV or PDF, named by local extraction time */
   export: async (format, params = {}) => {

@@ -490,6 +490,9 @@
         window.showToast?.(`Auto-matched ${result.matched} document(s)`, 'success')
         await loadTransactions()
       }
+      if (result.ambiguous?.length) {
+        window.showToast?.(`${result.ambiguous.length} document(s) match several transactions, pick below`, 'warning')
+      }
 
       // Step 2: fetch fuzzy suggestions for remaining unmatched
       const sugResult = await api.transactions.matchSuggestions()
@@ -1179,7 +1182,7 @@
 
 <!-- Match Suggestions Modal -->
 <Modal bind:show={showSuggestionsModal} title="Suggested Document Matches" size="3xl">
-  <p class="text-xs text-va-muted mb-4">Documents with matching amounts and similar counterparty names. Review and approve.</p>
+  <p class="text-xs text-va-muted mb-4">Documents the auto-matcher would not link on its own. "Pick one" rows are several equally plausible transactions for the same document; approving one drops the others.</p>
   {#if matchSuggestions.length === 0}
     <p class="text-sm text-va-muted text-center py-6">No suggestions remaining</p>
   {:else}
@@ -1195,7 +1198,7 @@
                   {suggestion.document_filename}
                 </div>
                 <div class="text-xs text-va-muted mt-0.5">{suggestion.document_vendor}</div>
-                <div class="text-xs text-va-muted">€{suggestion.document_amount}</div>
+                <div class="text-xs text-va-muted">€{suggestion.document_amount}{suggestion.document_date ? ` · ${suggestion.document_date}` : ''}</div>
               </div>
               <!-- Transaction side -->
               <div>
@@ -1203,12 +1206,16 @@
                 <div class="text-xs text-va-text font-medium truncate" title={suggestion.transaction_description}>
                   {suggestion.transaction_counterparty || suggestion.transaction_description}
                 </div>
-                <div class="text-xs text-va-muted mt-0.5">{suggestion.transaction_date || '—'}</div>
+                <div class="text-xs text-va-muted mt-0.5">{suggestion.transaction_date ? suggestion.transaction_date.slice(0, 10) : '—'}{suggestion.days_from_invoice != null ? ` (${suggestion.days_from_invoice >= 0 ? '+' : ''}${suggestion.days_from_invoice}d)` : ''}</div>
                 <div class="text-xs text-va-muted">€{suggestion.transaction_amount}</div>
               </div>
             </div>
             <div class="flex flex-col items-end gap-1.5 shrink-0">
-              {#if suggestion.match_type === 'name_similar'}
+              {#if suggestion.match_type === 'ambiguous'}
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-va-warning/15 text-va-warning font-medium">
+                  pick one of {suggestion.candidates}
+                </span>
+              {:else if suggestion.match_type === 'name_similar'}
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-va-accent/10 text-va-accent font-medium">
                   {Math.round(suggestion.similarity * 100)}% name match
                 </span>

@@ -127,7 +127,13 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
             for doc_id in new_ids:
                 await asyncio.to_thread(_process_document, doc_id, settings.database_url)
             log("OCR + extraction complete")
-            match_documents_to_transactions(db)
+            report = match_documents_to_transactions(db)
+            for amb in report.ambiguous:
+                if amb.document.run_id == run.id:
+                    opts = ", ".join(
+                        f"{c.txn.transaction_date.date()} {c.txn.amount}" for c in amb.candidates
+                    )
+                    log(f"Needs a manual pick: {amb.document.filename} could be {opts}")
             run.documents_matched = (
                 db.query(Document).filter(Document.run_id == run.id, Document.transactions.any()).count()
             )
