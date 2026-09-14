@@ -512,6 +512,8 @@ export const invoiceSources = {
   gmailAuthUrl: (id) => request(`/invoice-sources/${id}/gmail/auth-url`),
   gmailPreview: (id, period) => request(`/invoice-sources/${id}/gmail/preview`, { method: 'POST', body: period, timeoutMs: 180_000 }),
   gmailDisconnect: (id) => request(`/invoice-sources/${id}/gmail/disconnect`, { method: 'POST' }),
+  emailRecipient: () => request('/invoice-sources/email/recipient'),
+  emailRun: (runId, to) => request(`/invoice-sources/runs/${runId}/email`, { method: 'POST', body: { to }, timeoutMs: 180_000 }),
 }
 
 // Provider credentials (Browserbase, 1Password, LLM, Google)

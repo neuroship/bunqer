@@ -48,6 +48,13 @@ def get_presigned_url(s3_key: str, expires_in: int = 3600) -> str:
     return url
 
 
+def download_document(s3_key: str) -> bytes:
+    """Read a document's bytes from S3."""
+    client = _get_client()
+    response = client.get_object(Bucket=settings.aws_s3_bucket_name, Key=s3_key)
+    return response["Body"].read()
+
+
 def delete_document(s3_key: str) -> None:
     """Delete document from S3."""
     client = _get_client()

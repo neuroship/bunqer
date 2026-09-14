@@ -7,6 +7,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
@@ -21,13 +22,14 @@ from ..models import (
     InvoiceSourceCreate,
     InvoiceSourceResponse,
     InvoiceSourceUpdate,
+    ProviderSetting,
     RunRequest,
     RunStatus,
     SourceKind,
     get_provider_settings,
     require_provider,
 )
-from ..services import gmail_fetcher
+from ..services import gmail_fetcher, s3
 from ..services.invoice_fetch_runner import is_running, run_all, run_source
 
 router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
@@ -35,6 +37,12 @@ router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
 public_router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
 
 GMAIL_CALLBACK_PATH = "/invoice-sources/gmail/callback"
+# Last address a run was emailed to, kept in the provider key/value store (not shown under Providers).
+EMAIL_RECIPIENT_KEY = "invoice_email_to"
+
+
+class EmailRunRequest(BaseModel):
+    to: str
 
 
 def _to_response(src: InvoiceSource) -> InvoiceSourceResponse:
@@ -183,6 +191,61 @@ async def run_documents(run_id: int, db: Session = Depends(get_db)):
         .all()
     )
     return [_doc_to_response(d) for d in docs]
+
+
+@router.get("/email/recipient")
+async def email_recipient(db: Session = Depends(get_db)):
+    """Where run invoices were last emailed to, for prefilling the form."""
+    row = db.query(ProviderSetting).get(EMAIL_RECIPIENT_KEY)
+    return {"to": row.value if row else None}
+
+
+@router.post("/runs/{run_id}/email")
+async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(get_db)):
+    """Send every document of one run as attachments, via the first Gmail source that can send."""
+    to = body.to.strip()
+    if "@" not in to:
+        raise HTTPException(400, "Enter a valid email address")
+    run = db.query(InvoiceFetchRun).get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    docs = db.query(Document).filter(Document.run_id == run_id).order_by(Document.id).all()
+    if not docs:
+        raise HTTPException(400, "This run has no documents to send")
+    connected = (
+        db.query(InvoiceSource)
+        .filter(InvoiceSource.gmail_token.isnot(None))
+        .order_by(InvoiceSource.created_at)
+        .all()
+    )
+    if not connected:
+        raise HTTPException(400, "Connect a Gmail source first; it is used to send the email")
+    sender = next((s for s in connected if gmail_fetcher.can_send(s.gmail_token)), None)
+    if not sender:
+        raise HTTPException(
+            400, f"Reconnect Gmail on '{connected[0].name}' to allow sending email (new permission)"
+        )
+
+    period = f"{run.date_from} to {run.date_to}" if run.date_from and run.date_to else "run"
+    source_name = run.source.name if run.source else "auto-fetch"
+    subject = f"Invoices: {source_name}, {period}"
+    text = f"{len(docs)} document(s) collected from {source_name} ({period}):\n\n" + "\n".join(
+        f"- {d.filename}" for d in docs
+    )
+    try:
+        files = await asyncio.to_thread(
+            lambda: [(d.filename, s3.download_document(d.s3_key), d.content_type) for d in docs]
+        )
+        sent = await asyncio.to_thread(gmail_fetcher.send_files, sender.gmail_token, to, subject, text, files)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Emailing run {run_id} failed: {e}")
+        raise HTTPException(502, f"Sending failed: {e}")
+
+    row = db.query(ProviderSetting).get(EMAIL_RECIPIENT_KEY) or ProviderSetting(key=EMAIL_RECIPIENT_KEY)
+    row.value = to
+    db.add(row)
+    db.commit()
+    return {"detail": f"Sent {len(docs)} document(s) to {to} in {sent} email(s)"}
 
 
 # --- Gmail OAuth ---

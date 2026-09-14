@@ -7,6 +7,7 @@ import json
 import os
 import re
 from datetime import date, timedelta
+from email.message import EmailMessage
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -16,7 +17,8 @@ from googleapiclient.discovery import build
 from ..logger import logger
 from . import llm
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", SEND_SCOPE]
 # Google may return extra scopes (e.g. openid); without this oauthlib raises on the mismatch.
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 DEFAULT_QUERY = "(invoice OR factuur OR receipt OR bill OR bon)"
@@ -61,10 +63,17 @@ def exchange_code(client_id: str, client_secret: str, redirect_uri: str, code: s
 
 
 def _service(token_json: str):
-    creds = Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
+    # Use the scopes Google actually granted (stored in the token), not SCOPES: tokens issued
+    # before the send scope was added would fail to refresh if we claimed it.
+    creds = Credentials.from_authorized_user_info(json.loads(token_json))
     if not creds.valid and creds.refresh_token:
         creds.refresh(Request())
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+
+def can_send(token_json: str) -> bool:
+    """Whether the stored grant includes permission to send mail."""
+    return SEND_SCOPE in (json.loads(token_json).get("scopes") or [])
 
 
 # --- Query building ---
@@ -267,3 +276,40 @@ async def fetch_invoices(
     files = await asyncio.to_thread(download_selected, token_json, selected, log)
     logger.info(f"Gmail fetch done: {len(files)} file(s)")
     return files
+
+
+# --- Sending ---
+
+# Gmail rejects messages over 25 MB; base64 inflates attachments by a third, so stay well under.
+MAX_ATTACHMENTS_BYTES = 17 * 1024 * 1024
+
+
+def _batches(files: list[tuple[str, bytes, str]]) -> list[list[tuple[str, bytes, str]]]:
+    batches: list[list[tuple[str, bytes, str]]] = [[]]
+    size = 0
+    for f in files:
+        if batches[-1] and size + len(f[1]) > MAX_ATTACHMENTS_BYTES:
+            batches.append([])
+            size = 0
+        batches[-1].append(f)
+        size += len(f[1])
+    return batches
+
+
+def send_files(token_json: str, to: str, subject: str, body: str, files: list[tuple[str, bytes, str]]) -> int:
+    """Email (filename, bytes, content_type) files as attachments, split over several messages
+    when they exceed Gmail's size limit. Returns the number of messages sent."""
+    service = _service(token_json)
+    batches = _batches(files)
+    for i, batch in enumerate(batches, 1):
+        msg = EmailMessage()
+        msg["To"] = to
+        msg["Subject"] = subject if len(batches) == 1 else f"{subject} ({i}/{len(batches)})"
+        msg.set_content(body)
+        for filename, data, content_type in batch:
+            maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+            msg.add_attachment(data, maintype=maintype, subtype=subtype or "octet-stream", filename=filename)
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        service.users().messages().send(userId="me", body={"raw": raw}).execute()
+    logger.info(f"Sent {len(files)} file(s) to {to} in {len(batches)} message(s)")
+    return len(batches)

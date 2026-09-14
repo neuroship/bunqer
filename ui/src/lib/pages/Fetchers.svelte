@@ -27,6 +27,11 @@
   let previewData = $state(null)
   let previewLoading = $state(false)
 
+  // Email run documents modal
+  let emailTarget = $state(null)
+  let emailTo = $state('')
+  let sending = $state(false)
+
   // Run quarter modal (runTarget = a source, or 'all')
   let runTarget = $state(null)
   let runYear = $state(new Date().getFullYear())
@@ -209,6 +214,31 @@
       window.showToast?.(error.message, 'error')
     } finally {
       starting = false
+    }
+  }
+
+  async function openEmail(run) {
+    emailTarget = run
+    if (!emailTo) {
+      try {
+        emailTo = (await api.invoiceSources.emailRecipient()).to || ''
+      } catch {
+        // prefill only
+      }
+    }
+  }
+
+  async function sendEmail() {
+    if (!emailTarget || !emailTo.trim()) return
+    sending = true
+    try {
+      const res = await api.invoiceSources.emailRun(emailTarget.id, emailTo.trim())
+      window.showToast?.(res.detail, 'success')
+      emailTarget = null
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      sending = false
     }
   }
 
@@ -457,6 +487,15 @@
                   <td class="text-right {run.documents_new > 0 ? 'text-va-success' : ''}">{run.documents_new}</td>
                   <td class="text-right {run.documents_matched > 0 ? 'text-va-success' : ''}">{run.documents_matched}</td>
                   <td class="text-right whitespace-nowrap">
+                    {#if run.status !== 'running' && run.documents_new > 0}
+                      <button
+                        onclick={(e) => { e.stopPropagation(); openEmail(run) }}
+                        class="text-va-muted hover:text-va-accent mr-1"
+                        title="Email this run's invoices"
+                      >
+                        <span class="icon-[tabler--mail-forward] w-4 h-4"></span>
+                      </button>
+                    {/if}
                     {#if run.status !== 'running'}
                       <button
                         onclick={(e) => { e.stopPropagation(); deleteRun(run) }}
@@ -506,7 +545,7 @@
     <Input label="Advanced: fixed Gmail query (optional)" bind:value={form.gmail_query} placeholder="from:tesla.com subject:(invoice OR factuur)" />
     <p class="text-xs text-va-muted -mt-2 mb-3">Overrides the generated search; the quarter dates are still added.</p>
     {#if !editing}
-      <p class="text-xs text-va-muted mb-3">After saving you will be redirected to Google to grant read-only access.</p>
+      <p class="text-xs text-va-muted mb-3">After saving you will be redirected to Google to grant access to read mail and send email.</p>
     {/if}
   {/if}
 
@@ -544,6 +583,20 @@
       <Button variant="secondary" onclick={() => runTarget = null}>Cancel</Button>
       <Button onclick={runNow} loading={starting}>
         <span class="icon-[tabler--player-play] w-4 h-4"></span> Collect
+      </Button>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Email run documents modal -->
+<Modal show={!!emailTarget} title="Email invoices from {emailTarget?.source_name || ''}" size="sm" onClose={() => emailTarget = null}>
+  {#if emailTarget}
+    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of this run ({quarterLabel(emailTarget)}) as attachments, from your connected Gmail account.</p>
+    <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
+    <div class="flex justify-end gap-2">
+      <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
+      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim()}>
+        <span class="icon-[tabler--send] w-4 h-4"></span> Send
       </Button>
     </div>
   {/if}
