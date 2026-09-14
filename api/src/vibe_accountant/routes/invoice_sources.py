@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from urllib.parse import quote
+
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session, selectinload
@@ -219,25 +221,31 @@ async def gmail_callback(
     db: Session = Depends(get_db),
 ):
     frontend = f"{settings.frontend_url}/#fetchers"
-    if error or not code or not state:
-        return RedirectResponse(f"{frontend}?gmail=error")
+
+    def fail(reason: str):
+        logger.error(f"Gmail OAuth callback failed: {reason}")
+        return RedirectResponse(f"{frontend}?gmail=error&reason={quote(reason[:200])}")
+
+    if error:
+        return fail(f"Google returned: {error}")
+    if not code or not state:
+        return fail("Missing code or state in callback")
     try:
         payload = jwt.decode(state, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         source_id = int(payload["source_id"])
     except (JWTError, KeyError, ValueError):
-        return RedirectResponse(f"{frontend}?gmail=error")
+        return fail("Login state expired or invalid, start the connection again")
 
     src = db.query(InvoiceSource).get(source_id)
     if not src:
-        return RedirectResponse(f"{frontend}?gmail=error")
+        return fail("Source no longer exists")
     try:
         p = _gmail_config(db)
         token_json, email = gmail_fetcher.exchange_code(
             p["google_client_id"], p["google_client_secret"], p["google_redirect_uri"], code
         )
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Gmail OAuth exchange failed: {e}")
-        return RedirectResponse(f"{frontend}?gmail=error")
+        return fail(f"Token exchange failed: {e}")
 
     src.gmail_token = token_json
     src.gmail_email = email

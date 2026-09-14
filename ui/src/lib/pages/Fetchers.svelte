@@ -81,7 +81,7 @@
     const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
     const gmail = params.get('gmail')
     if (gmail === 'connected') window.showToast?.('Gmail connected', 'success')
-    if (gmail === 'error') window.showToast?.('Gmail connection failed', 'error')
+    if (gmail === 'error') window.showToast?.(`Gmail connection failed: ${params.get('reason') || 'unknown error'}`, 'error')
     if (gmail) window.location.hash = 'fetchers'
 
     const onUpdate = () => loadAll()
