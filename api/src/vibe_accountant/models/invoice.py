@@ -14,7 +14,6 @@ from .base import Base
 class InvoiceStatus(str, Enum):
     """Invoice status enum."""
 
-    DRAFT = "draft"
     SENT = "sent"
     PAID = "paid"
     OVERDUE = "overdue"
@@ -34,7 +33,7 @@ class Invoice(Base):
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=InvoiceStatus.DRAFT.value
+        String(20), nullable=False, default=InvoiceStatus.SENT.value
     )
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     vat_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)

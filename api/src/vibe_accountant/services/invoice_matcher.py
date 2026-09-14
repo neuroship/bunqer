@@ -6,7 +6,6 @@ from ..logger import logger
 from ..models import Invoice, InvoiceStatus, Transaction
 
 OPEN_STATUSES = (
-    InvoiceStatus.DRAFT.value,
     InvoiceStatus.SENT.value,
     InvoiceStatus.OVERDUE.value,
 )

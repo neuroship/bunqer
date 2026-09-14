@@ -191,7 +191,7 @@ async def create_invoice(invoice: InvoiceCreate, db: Session = Depends(get_db)):
         invoice_date=invoice.invoice_date,
         due_date=invoice.due_date,
         notes=invoice.notes,
-        status=InvoiceStatus.DRAFT.value,
+        status=InvoiceStatus.SENT.value,
     )
     db.add(db_invoice)
     db.flush()
@@ -295,33 +295,6 @@ async def delete_invoice(invoice_id: int, db: Session = Depends(get_db)):
     db.delete(invoice)
     db.commit()
     return {"status": "deleted", "id": invoice_id}
-
-
-@router.post("/{invoice_id}/send")
-async def send_invoice(invoice_id: int, db: Session = Depends(get_db)):
-    """Mark an invoice as sent."""
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    if invoice.status != InvoiceStatus.DRAFT.value:
-        raise HTTPException(status_code=400, detail="Only draft invoices can be sent")
-
-    invoice.status = InvoiceStatus.SENT.value
-    db.commit()
-    return {"status": "sent", "id": invoice_id}
-
-
-@router.post("/{invoice_id}/mark-paid")
-async def mark_invoice_paid(invoice_id: int, db: Session = Depends(get_db)):
-    """Mark an invoice as paid."""
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Invoice not found")
-
-    invoice.status = InvoiceStatus.PAID.value
-    db.commit()
-    return {"status": "paid", "id": invoice_id}
 
 
 def _render_invoice_pdf(db: Session, invoice_id: int) -> tuple[bytes, str]:
@@ -450,7 +423,6 @@ def _render_invoice_pdf(db: Session, invoice_id: int) -> tuple[bytes, str]:
 
     # Status badge
     status_colors = {
-        "draft": (107, 114, 128),
         "sent": (59, 130, 246),
         "paid": (34, 197, 94),
         "overdue": (239, 68, 68),
