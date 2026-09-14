@@ -16,6 +16,11 @@
   let saving = $state(false)
   let editingInvoice = $state(null)
   let downloadingPdf = $state(null)
+
+  // Email PDF modal
+  let emailTarget = $state(null)
+  let emailTo = $state('')
+  let sending = $state(false)
   let matching = $state(false)
 
   // Form state
@@ -226,6 +231,31 @@
     }
   }
 
+  async function openEmail(invoice) {
+    emailTarget = invoice
+    if (!emailTo) {
+      try {
+        emailTo = (await api.invoiceSources.emailRecipient()).to || ''
+      } catch {
+        // prefill only
+      }
+    }
+  }
+
+  async function sendEmail() {
+    if (!emailTarget || !emailTo.trim()) return
+    sending = true
+    try {
+      const res = await api.invoices.email(emailTarget.id, emailTo.trim())
+      window.showToast?.(res.detail, 'success')
+      emailTarget = null
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      sending = false
+    }
+  }
+
   async function revertToDraft(invoice) {
     try {
       await api.invoices.update(invoice.id, { status: 'draft' })
@@ -400,6 +430,15 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       {/if}
+                    </button>
+                    <button
+                      onclick={() => openEmail(invoice)}
+                      class="p-1.5 rounded-md text-va-muted hover:text-va-accent hover:bg-va-accent/10 transition-colors"
+                      title="Email PDF"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
                     </button>
                     {#if invoice.status === 'draft'}
                       <button
@@ -661,4 +700,16 @@
       {editingInvoice ? 'Save Changes' : 'Create Invoice'}
     </Button>
   </div>
+</Modal>
+
+<!-- Email PDF modal -->
+<Modal show={!!emailTarget} title="Email invoice {emailTarget?.invoice_number || ''}" size="sm" onClose={() => emailTarget = null}>
+  {#if emailTarget}
+    <p class="text-xs text-va-muted mb-3">Sends the PDF as an attachment, from your connected Gmail account.</p>
+    <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
+    <div class="flex justify-end gap-2">
+      <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
+      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim()}>Send</Button>
+    </div>
+  {/if}
 </Modal>

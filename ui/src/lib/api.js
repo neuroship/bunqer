@@ -372,6 +372,7 @@ export const invoices = {
   markPaid: (id) => request(`/invoices/${id}/mark-paid`, { method: 'POST' }),
   nextNumber: () => request('/invoices/next-number'),
   matchPayments: () => request('/invoices/match-payments', { method: 'POST' }),
+  email: (id, to) => request(`/invoices/${id}/email`, { method: 'POST', body: { to }, timeoutMs: 180_000 }),
   downloadPdf: async (id) => {
     const url = `${API_BASE}/invoices/${id}/pdf`
     const token = getToken()

@@ -1,11 +1,13 @@
 """Invoice and client management endpoints."""
 
+import asyncio
 import io
 from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -15,6 +17,7 @@ from ..models import (
     ClientCreate,
     ClientResponse,
     ClientUpdate,
+    CompanySettings,
     Invoice,
     InvoiceCreate,
     InvoiceItem,
@@ -22,6 +25,7 @@ from ..models import (
     InvoiceStatus,
     InvoiceUpdate,
 )
+from ..services import gmail_fetcher, invoice_email
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -320,9 +324,8 @@ async def mark_invoice_paid(invoice_id: int, db: Session = Depends(get_db)):
     return {"status": "paid", "id": invoice_id}
 
 
-@router.get("/{invoice_id}/pdf")
-async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
-    """Generate and download an invoice as PDF."""
+def _render_invoice_pdf(db: Session, invoice_id: int) -> tuple[bytes, str]:
+    """Generate an invoice PDF; returns (bytes, filename)."""
     import base64
     import tempfile
 
@@ -333,9 +336,6 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     client = db.query(Client).filter(Client.id == invoice.client_id).first()
-
-    # Load company settings
-    from ..models import CompanySettings
 
     company = db.query(CompanySettings).first()
 
@@ -640,7 +640,6 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
 
     # Output PDF
     pdf_bytes = pdf.output()
-    pdf_buffer = io.BytesIO(pdf_bytes)
     filename = f"{invoice.invoice_number}.pdf"
 
     # Clean up temp logo file
@@ -652,8 +651,44 @@ async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         except OSError:
             pass
 
+    return bytes(pdf_bytes), filename
+
+
+@router.get("/{invoice_id}/pdf")
+async def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
+    """Generate and download an invoice as PDF."""
+    pdf_bytes, filename = _render_invoice_pdf(db, invoice_id)
     return StreamingResponse(
-        pdf_buffer,
+        io.BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+class EmailInvoiceRequest(BaseModel):
+    to: str
+
+
+@router.post("/{invoice_id}/email")
+async def email_invoice_pdf(invoice_id: int, body: EmailInvoiceRequest, db: Session = Depends(get_db)):
+    """Email the invoice PDF to an address, via the first Gmail source that can send."""
+    to = invoice_email.clean_address(body.to)
+    pdf_bytes, filename = _render_invoice_pdf(db, invoice_id)
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    sender = invoice_email.pick_sender(db)
+
+    company = db.query(CompanySettings).first()
+    sender_name = company.name if company and company.name else "your supplier"
+    subject = f"Invoice {invoice.invoice_number} from {sender_name}"
+    text = f"Please find invoice {invoice.invoice_number} attached.\n\n{sender_name}"
+    try:
+        await asyncio.to_thread(
+            gmail_fetcher.send_files, sender.gmail_token, to, subject, text,
+            [(filename, pdf_bytes, "application/pdf")],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Emailing invoice {invoice_id} failed: {e}")
+        raise HTTPException(502, f"Sending failed: {e}")
+
+    invoice_email.remember_recipient(db, to)
+    return {"detail": f"Sent {filename} to {to}"}

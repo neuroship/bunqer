@@ -22,14 +22,13 @@ from ..models import (
     InvoiceSourceCreate,
     InvoiceSourceResponse,
     InvoiceSourceUpdate,
-    ProviderSetting,
     RunRequest,
     RunStatus,
     SourceKind,
     get_provider_settings,
     require_provider,
 )
-from ..services import gmail_fetcher, s3
+from ..services import gmail_fetcher, invoice_email, s3
 from ..services.invoice_fetch_runner import is_running, run_all, run_source
 
 router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
@@ -37,8 +36,6 @@ router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
 public_router = APIRouter(prefix="/invoice-sources", tags=["invoice-sources"])
 
 GMAIL_CALLBACK_PATH = "/invoice-sources/gmail/callback"
-# Last address a run was emailed to, kept in the provider key/value store (not shown under Providers).
-EMAIL_RECIPIENT_KEY = "invoice_email_to"
 
 
 class EmailRunRequest(BaseModel):
@@ -195,36 +192,21 @@ async def run_documents(run_id: int, db: Session = Depends(get_db)):
 
 @router.get("/email/recipient")
 async def email_recipient(db: Session = Depends(get_db)):
-    """Where run invoices were last emailed to, for prefilling the form."""
-    row = db.query(ProviderSetting).get(EMAIL_RECIPIENT_KEY)
-    return {"to": row.value if row else None}
+    """Where invoices were last emailed to, for prefilling the form."""
+    return {"to": invoice_email.get_recipient(db)}
 
 
 @router.post("/runs/{run_id}/email")
 async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(get_db)):
     """Send every document of one run as attachments, via the first Gmail source that can send."""
-    to = body.to.strip()
-    if "@" not in to:
-        raise HTTPException(400, "Enter a valid email address")
+    to = invoice_email.clean_address(body.to)
     run = db.query(InvoiceFetchRun).get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
     docs = db.query(Document).filter(Document.run_id == run_id).order_by(Document.id).all()
     if not docs:
         raise HTTPException(400, "This run has no documents to send")
-    connected = (
-        db.query(InvoiceSource)
-        .filter(InvoiceSource.gmail_token.isnot(None))
-        .order_by(InvoiceSource.created_at)
-        .all()
-    )
-    if not connected:
-        raise HTTPException(400, "Connect a Gmail source first; it is used to send the email")
-    sender = next((s for s in connected if gmail_fetcher.can_send(s.gmail_token)), None)
-    if not sender:
-        raise HTTPException(
-            400, f"Reconnect Gmail on '{connected[0].name}' to allow sending email (new permission)"
-        )
+    sender = invoice_email.pick_sender(db)
 
     period = f"{run.date_from} to {run.date_to}" if run.date_from and run.date_to else "run"
     source_name = run.source.name if run.source else "auto-fetch"
@@ -241,10 +223,7 @@ async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(ge
         logger.error(f"Emailing run {run_id} failed: {e}")
         raise HTTPException(502, f"Sending failed: {e}")
 
-    row = db.query(ProviderSetting).get(EMAIL_RECIPIENT_KEY) or ProviderSetting(key=EMAIL_RECIPIENT_KEY)
-    row.value = to
-    db.add(row)
-    db.commit()
+    invoice_email.remember_recipient(db, to)
     return {"detail": f"Sent {len(docs)} document(s) to {to} in {sent} email(s)"}
 
 
