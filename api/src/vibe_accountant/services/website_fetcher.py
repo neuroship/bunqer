@@ -16,6 +16,7 @@ from .onepassword import resolve_login, resolve_totp
 
 MAX_INVOICES = 20
 MAX_LOAD_MORE = 10
+MAX_NAV_STEPS = 6
 FETCH_JS = """
 (async () => {
   const r = await fetch(%s, { credentials: 'include' });
@@ -93,6 +94,8 @@ async def _act(stagehand: Stagehand, log: Callable[[str], None], instruction: st
         log(f"Cached step replayed: '{instruction[:50]}'")
     if not result.data.success:
         log(f"Step failed: '{instruction}' -> {result.data.message}")
+    elif result.data.action_description:
+        log(f"Did: {result.data.action_description[:100]}")
     return result.data.success
 
 
@@ -258,6 +261,46 @@ def _read_downloads_zip(api_key: str, session_id: str, log: Callable[[str], None
     return files
 
 
+EXTRACT_PROMPT = (
+    "List every invoice row currently shown on this page, newest first, regardless of date. "
+    "For each give the title (invoice number, product or period), the invoice date converted "
+    "to YYYY-MM-DD, the amount, and the absolute URL of its PDF if the row links directly to a "
+    "file (otherwise leave pdf_url empty). Return an empty list if this page shows no invoices."
+)
+
+
+async def _navigate_to_invoices(
+    stagehand: Stagehand, page, log: Callable[[str], None], instructions: str | None
+) -> list[InvoiceLink]:
+    """Click through the portal until a page with invoice rows is found; raise if none within budget."""
+    hint = f" Hint: {instructions}" if instructions else ""
+    tried: list[str] = []
+    for step in range(MAX_NAV_STEPS):
+        rows = (await stagehand.extract(EXTRACT_PROMPT, InvoiceLinks)).data.invoices
+        if rows:
+            log(f"Invoice page: {await page.url()}")
+            return rows
+        if step == 0:
+            prompt = f"go to the page that lists invoices or billing history.{hint}"
+        else:
+            prompt = (
+                "This page does not list invoices. You are looking for the page with the invoice or billing "
+                f"history. Previous clicks did not reach it: {'; '.join(tried)}. Click the next most likely "
+                "navigation item instead, such as Billing, Invoices, Facturen, Payments, Orders, Account or "
+                f"My account, expanding a collapsed menu group first if the item is inside one.{hint}"
+            )
+        result = await stagehand.act(prompt)
+        desc = (result.data.action_description or result.data.message or "").strip()
+        tried.append(desc[:80] or f"step {step + 1}")
+        log(f"Navigation step {step + 1}: {desc[:100] or 'no action'}")
+        await _settle(page)
+        await _dismiss_overlays(stagehand, log)
+    raise RuntimeError(
+        f"Could not find the invoice page after {MAX_NAV_STEPS} steps, ended at {await page.url()}. "
+        "Add a hint in the source instructions or check the session replay."
+    )
+
+
 async def fetch_website_invoices(
     *,
     providers: dict[str, str],
@@ -347,26 +390,10 @@ async def fetch_website_invoices(
                     f"Login did not complete, still at {current}. Check the session replay."
                 )
 
-            nav = "go to the page that lists invoices or billing history"
-            if instructions:
-                nav += f". Hint: {instructions}"
-            await _act(stagehand, log, nav)
-            await _settle(page)
-            await _dismiss_overlays(stagehand, log)
-            log(f"Invoice page: {await page.url()}")
-
-            extract_prompt = (
-                "List every invoice row currently shown on this page, newest first, regardless of date. "
-                "For each give the title (invoice number, product or period), the invoice date converted "
-                "to YYYY-MM-DD, the amount, and the absolute URL of its PDF if the row links directly to a "
-                "file (otherwise leave pdf_url empty)."
-            )
+            rows = await _navigate_to_invoices(stagehand, page, log, instructions)
 
             # Load older rows until the window start is covered (or nothing more to load).
-            rows: list[InvoiceLink] = []
             for _ in range(MAX_LOAD_MORE):
-                extracted = await stagehand.extract(extract_prompt, InvoiceLinks)
-                rows = extracted.data.invoices
                 dates = [d for d in (_parse_date(r.invoice_date) for r in rows) if d]
                 if not date_from or (dates and min(dates) <= date_from):
                     break
@@ -379,9 +406,15 @@ async def fetch_website_invoices(
                 await stagehand.act(more.data[0])
                 await _settle(page)
                 log(f"Loaded more invoice rows (oldest so far {min(dates) if dates else 'unknown'})")
+                rows = (await stagehand.extract(EXTRACT_PROMPT, InvoiceLinks)).data.invoices
 
             links = [r for r in rows if _in_window(r.invoice_date, date_from, date_to)][:MAX_INVOICES]
             log(f"Found {len(rows)} invoice row(s), {len(links)} in period")
+            if not links:
+                raise RuntimeError(
+                    f"No invoices between {date_from} and {date_to} on {await page.url()} "
+                    f"({len(rows)} row(s) visible). Check the session replay."
+                )
 
             clicked: list[InvoiceLink] = []
             for idx, link in enumerate(links):
