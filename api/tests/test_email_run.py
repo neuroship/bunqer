@@ -197,10 +197,11 @@ def test_recipient_accepts_several_comma_separated_addresses(env):
     assert env["client"].put("/invoice-sources/email/recipient", json={"to": "a@x.com, nope"}).status_code == 400
 
     _add_gmail(env, "work", _token(READ, SEND))
-    r = env["client"].post(f"/invoice-sources/runs/{env['run_id']}/email", json={"to": "a@x.com, b@y.com"})
+    r = env["client"].post(f"/invoice-sources/runs/{env['run_id']}/email", json={"to": "a@x.com, b@y.com, c@z.com"})
     assert r.status_code == 200, r.text
     msg = message_from_bytes(base64.urlsafe_b64decode(env["sent"][0]["raw"]))
-    assert msg["To"] == "a@x.com, b@y.com"
+    assert msg["To"] == "a@x.com"
+    assert msg["Cc"] == "b@y.com, c@z.com"
 
 
 def test_recipient_status_points_at_source_needing_reconnect(env):

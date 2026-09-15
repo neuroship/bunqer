@@ -361,9 +361,12 @@ def send_files(token_json: str, to: str, subject: str, body: str, files: list[tu
     when they exceed Gmail's size limit. Returns the number of messages sent."""
     service = _service(token_json)
     batches = _batches(files)
+    first, _, cc = to.partition(",")
     for i, batch in enumerate(batches, 1):
         msg = EmailMessage()
-        msg["To"] = to
+        msg["To"] = first.strip()
+        if cc.strip():
+            msg["Cc"] = cc.strip()
         msg["Subject"] = subject if len(batches) == 1 else f"{subject} ({i}/{len(batches)})"
         msg.set_content(body)
         for filename, data, content_type in batch:
