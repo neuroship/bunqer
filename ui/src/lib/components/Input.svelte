@@ -6,6 +6,7 @@
     value = $bindable(''),
     required = false,
     disabled = false,
+    multiple = false,
     error = '',
     class: className = ''
   } = $props()
@@ -35,6 +36,7 @@
       {placeholder}
       {required}
       {disabled}
+      {multiple}
       class="input input-sm bg-va-canvas border-va-border text-va-text w-full {error ? 'border-va-danger' : ''}"
     />
   {/if}

@@ -11,10 +11,11 @@ RECIPIENT_KEY = "invoice_email_to"
 
 
 def clean_address(to: str) -> str:
-    to = to.strip()
-    if "@" not in to:
-        raise HTTPException(400, "Enter a valid email address")
-    return to
+    """Normalise one or more comma-separated addresses to "a@x, b@y"."""
+    addresses = [a.strip() for a in to.split(",") if a.strip()]
+    if not addresses or any("@" not in a for a in addresses):
+        raise HTTPException(400, "Enter one or more valid email addresses, separated by commas")
+    return ", ".join(addresses)
 
 
 def get_recipient(db: Session) -> str | None:

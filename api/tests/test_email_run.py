@@ -190,6 +190,19 @@ def test_recipient_can_be_saved_without_sending(env):
     assert env["client"].put("/invoice-sources/email/recipient", json={"to": "nope"}).status_code == 400
 
 
+def test_recipient_accepts_several_comma_separated_addresses(env):
+    r = env["client"].put("/invoice-sources/email/recipient", json={"to": "a@x.com ,b@y.com,, "})
+    assert r.status_code == 200
+    assert r.json() == {"to": "a@x.com, b@y.com"}
+    assert env["client"].put("/invoice-sources/email/recipient", json={"to": "a@x.com, nope"}).status_code == 400
+
+    _add_gmail(env, "work", _token(READ, SEND))
+    r = env["client"].post(f"/invoice-sources/runs/{env['run_id']}/email", json={"to": "a@x.com, b@y.com"})
+    assert r.status_code == 200, r.text
+    msg = message_from_bytes(base64.urlsafe_b64decode(env["sent"][0]["raw"]))
+    assert msg["To"] == "a@x.com, b@y.com"
+
+
 def test_recipient_status_points_at_source_needing_reconnect(env):
     _add_gmail(env, "old", _token(READ))
     status = env["client"].get("/invoice-sources/email/recipient").json()

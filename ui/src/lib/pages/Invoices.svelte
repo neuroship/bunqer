@@ -667,7 +667,7 @@
         {/if}
       </div>
     {/if}
-    <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
+    <Input type="email" multiple label="Send to" bind:value={emailTo} placeholder="accountant@example.com, you@example.com" required />
     <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
       <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim() || !emailSender}>Send</Button>

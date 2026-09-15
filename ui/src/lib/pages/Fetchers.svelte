@@ -535,8 +535,8 @@
     <Card>
       <div class="flex flex-col sm:flex-row sm:items-end gap-2 mb-6">
         <div class="flex-1">
-          <Input type="email" label="Send invoices to" bind:value={emailTo} placeholder="accountant@example.com" />
-          <p class="text-xs text-va-muted -mt-2">Prefilled when you email a run's invoices or an invoice PDF.</p>
+          <Input type="email" multiple label="Send invoices to" bind:value={emailTo} placeholder="accountant@example.com, you@example.com" />
+          <p class="text-xs text-va-muted -mt-2">Separate several addresses with commas. Prefilled when you email a run's invoices or an invoice PDF.</p>
           {#if emailSender}
             <p class="text-xs text-va-muted mt-1">Sent from {emailSender}.</p>
           {:else if emailReconnect}
@@ -737,7 +737,7 @@
         {/if}
       </div>
     {/if}
-    <Input type="email" label="Send to" bind:value={emailTo} placeholder="accountant@example.com" required />
+    <Input type="email" multiple label="Send to" bind:value={emailTo} placeholder="accountant@example.com, you@example.com" required />
     <div class="flex justify-end gap-2">
       <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
       <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim() || !emailSender}>
