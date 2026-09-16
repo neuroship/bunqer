@@ -766,7 +766,7 @@
           class="flex items-center gap-2 px-3 py-2 rounded-lg border transition-all {selected ? 'bg-va-accent/15 border-va-accent' : 'bg-va-subtle border-va-border hover:border-va-muted'}"
           title={selected ? 'Click to stop filtering by this account' : 'Click to filter by this account'}
         >
-          <span class="text-xs {selected ? 'text-va-accent' : 'text-va-muted'}" class:privacy-blur={privacyOn}>{account.name}</span>
+          <span class="text-xs {selected ? 'text-va-accent' : 'text-va-muted'}">{account.name}</span>
           <span class="text-sm font-medium {account.balance && parseFloat(account.balance) >= 0 ? 'text-va-success' : 'text-va-danger'}" class:privacy-blur={privacyOn}>
             {account.balance != null ? formatCurrency(parseFloat(account.balance)) : '-'}
           </span>
@@ -973,12 +973,12 @@
                   </td>
                 {/if}
                 {#if isColumnVisible('account')}
-                  <td class="py-3 px-3 text-sm text-va-muted whitespace-nowrap" class:privacy-blur={privacyOn}>
+                  <td class="py-3 px-3 text-sm text-va-muted whitespace-nowrap">
                     {getAccountName(transaction.account_id)}
                   </td>
                 {/if}
                 {#if isColumnVisible('counterparty')}
-                  <td class="py-3 px-3" class:privacy-blur={privacyOn}>
+                  <td class="py-3 px-3">
                     <div class="text-sm text-va-text">{transaction.counterparty_name || 'Unknown'}</div>
                     {#if transaction.counterparty_iban}
                       <div class="text-xs text-va-muted mt-0.5">{transaction.counterparty_iban}</div>
@@ -996,7 +996,7 @@
                   </td>
                 {/if}
                 {#if isColumnVisible('balance_after')}
-                  <td class="py-3 px-3 text-right text-sm text-va-muted whitespace-nowrap">
+                  <td class="py-3 px-3 text-right text-sm text-va-muted whitespace-nowrap" class:privacy-blur={privacyOn}>
                     {transaction.balance_after != null ? formatCurrency(transaction.balance_after) : '-'}
                   </td>
                 {/if}
