@@ -168,6 +168,7 @@ class TransactionListResponse(BaseModel):
 
 def filtered_transactions(
     account_id: int | None = Query(None),
+    account_ids: str | None = Query(None, description="Comma-separated account IDs"),
     category_id: str | None = Query(None, description="Filter by category ID, or 'none' for uncategorized"),
     query: str | None = Query(None, description="Search in description or counterparty"),
     min_amount: Decimal | None = Query(None),
@@ -191,6 +192,11 @@ def filtered_transactions(
     # Apply filters
     if account_id:
         q = q.filter(Transaction.account_id == account_id)
+
+    if account_ids:
+        ids = [int(x) for x in account_ids.split(",") if x.strip().isdigit()]
+        if ids:
+            q = q.filter(Transaction.account_id.in_(ids))
 
     if category_id:
         if category_id == "none":

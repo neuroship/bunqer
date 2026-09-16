@@ -29,7 +29,7 @@
   const FILTERS_STORAGE_KEY = 'transactions-filters'
   const defaultFilters = {
     query: '',
-    account_id: '',
+    account_ids: [],
     category_id: '',
     direction: '',
     tag: '',
@@ -47,6 +47,10 @@
       const stored = localStorage.getItem(FILTERS_STORAGE_KEY)
       if (stored) {
         const parsed = JSON.parse(stored)
+        // Migrate legacy single account_id to account_ids list
+        if (parsed.account_id && !parsed.account_ids) parsed.account_ids = [parsed.account_id]
+        delete parsed.account_id
+        parsed.account_ids = Array.isArray(parsed.account_ids) ? parsed.account_ids.map(Number) : []
         return { ...defaultFilters, ...parsed }
       }
     } catch (e) {
@@ -65,7 +69,7 @@
 
   // Collapsed filter sections - auto-open if filters are active from localStorage
   let showFilters = $state(
-    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
+    filters.account_ids.length || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -105,6 +109,9 @@
   // Export state
   let exporting = $state(false)
   let showExportMenu = $state(false)
+
+  // Actions menu (three-dot) state
+  let showActionsMenu = $state(false)
 
   // Create rule modal (shared component)
   let createRuleModal = $state()
@@ -183,6 +190,10 @@
     if (exportMenu && !exportMenu.contains(event.target)) {
       showExportMenu = false
     }
+    const actionsMenu = document.querySelector('[data-actions-menu]')
+    if (actionsMenu && !actionsMenu.contains(event.target)) {
+      showActionsMenu = false
+    }
   }
 
   onMount(async () => {
@@ -227,8 +238,8 @@
   }
 
   function buildParams(extraOverrides = {}) {
-    const { year, month, quarter, ...rest } = filters
-    const params = { ...rest, ...extraOverrides }
+    const { year, month, quarter, account_ids, ...rest } = filters
+    const params = { ...rest, account_ids: account_ids.join(','), ...extraOverrides }
 
     // Compute start_date/end_date from year/month/quarter
     if (year) {
@@ -318,6 +329,13 @@
   function handleFilterSelect() {
     saveFilters()
     loadTransactions()
+  }
+
+  function toggleAccountFilter(accountId) {
+    filters.account_ids = filters.account_ids.includes(accountId)
+      ? filters.account_ids.filter(id => id !== accountId)
+      : [...filters.account_ids, accountId]
+    handleFilterSelect()
   }
 
   function clearFilters() {
@@ -572,7 +590,7 @@
 
   // Check if any filters are active
   let hasActiveFilters = $derived(
-    filters.account_id || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
+    filters.account_ids.length || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
     filters.min_amount || filters.max_amount || filters.has_document
   )
 
@@ -591,71 +609,6 @@
           Clear filters
         </button>
       {/if}
-      <button
-        onclick={syncTransactions}
-        disabled={syncing}
-        class="p-2 rounded-lg border-2 transition-all bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed"
-        title="Fetch new transactions"
-      >
-        {#if syncing}
-          <div class="w-4 h-4 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
-        {:else}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        {/if}
-      </button>
-      <button
-        onclick={backfillTransactions}
-        disabled={backfilling}
-        class="p-2 rounded-lg border-2 transition-all bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed"
-        title="Fetch older historical transactions (up to 5 years)"
-      >
-        {#if backfilling}
-          <div class="w-4 h-4 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
-        {:else}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        {/if}
-      </button>
-      <label
-        class="text-xs flex items-center gap-1.5 text-va-muted hover:text-va-text cursor-pointer select-none"
-        title="Re-evaluate every transaction and overwrite existing categories, including ones set by hand"
-      >
-        <input type="checkbox" bind:checked={forceRules} class="accent-va-muted w-3.5 h-3.5" />
-        Overwrite
-      </label>
-      <button 
-        onclick={applyRules}
-        disabled={applyingRules}
-        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        title={forceRules ? 'Re-apply rules to ALL transactions, overwriting existing categories' : 'Apply categorization rules to uncategorized transactions'}
-      >
-        {#if applyingRules}
-          <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
-        {:else}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-        {/if}
-        {forceRules ? 'Re-apply Rules' : 'Apply Rules'}
-      </button>
-      <button
-        onclick={matchDocuments}
-        disabled={matchingDocs}
-        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        title="Match documents to transactions by reference or amount+name"
-      >
-        {#if matchingDocs}
-          <div class="w-3 h-3 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
-        {:else}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-        {/if}
-        Match Docs
-      </button>
       <!-- Export -->
       <div class="relative" data-export-menu>
         <button
@@ -727,6 +680,78 @@
           </div>
         {/if}
       </div>
+      <!-- Actions menu -->
+      <div class="relative" data-actions-menu>
+        <button
+          onclick={() => showActionsMenu = !showActionsMenu}
+          class="p-2 rounded-lg border-2 transition-all {showActionsMenu ? 'bg-va-accent/15 border-va-accent text-va-accent' : 'bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted'}"
+          title="More actions"
+        >
+          {#if syncing || backfilling || applyingRules || matchingDocs}
+            <div class="w-4 h-4 border-2 border-va-muted border-t-transparent rounded-full animate-spin"></div>
+          {:else}
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="5" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="12" cy="19" r="1.75" />
+            </svg>
+          {/if}
+        </button>
+        {#if showActionsMenu}
+          <div class="absolute right-0 top-full mt-2 w-56 bg-va-subtle border border-va-border rounded-lg shadow-lg z-10 p-1">
+            <button
+              onclick={() => { showActionsMenu = false; syncTransactions() }}
+              disabled={syncing}
+              class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Fetch new transactions"
+            >
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {syncing ? 'Syncing...' : 'Sync'}
+            </button>
+            <button
+              onclick={() => { showActionsMenu = false; backfillTransactions() }}
+              disabled={backfilling}
+              class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Fetch older historical transactions (up to 5 years)"
+            >
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {backfilling ? 'Fetching historical...' : 'Fetch historical'}
+            </button>
+            <button
+              onclick={() => { showActionsMenu = false; matchDocuments() }}
+              disabled={matchingDocs}
+              class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Match documents to transactions by reference or amount+name"
+            >
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              {matchingDocs ? 'Matching...' : 'Match Docs'}
+            </button>
+            <div class="my-1 border-t border-va-border"></div>
+            <label
+              class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover cursor-pointer select-none"
+              title="Re-evaluate every transaction and overwrite existing categories, including ones set by hand"
+            >
+              <input type="checkbox" bind:checked={forceRules} class="accent-va-muted w-3.5 h-3.5" />
+              Overwrite
+            </label>
+            <button
+              onclick={() => { showActionsMenu = false; applyRules() }}
+              disabled={applyingRules}
+              class="w-full flex items-center gap-2 text-sm px-3 py-1.5 rounded text-va-text hover:bg-va-hover disabled:opacity-50 disabled:cursor-not-allowed"
+              title={forceRules ? 'Re-apply rules to ALL transactions, overwriting existing categories' : 'Apply categorization rules to uncategorized transactions'}
+            >
+              <svg class="w-4 h-4 text-va-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              {applyingRules ? 'Applying...' : forceRules ? 'Re-apply Rules' : 'Apply Rules'}
+            </button>
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -734,12 +759,18 @@
   {#if showBalances && filterOptions.accounts.length > 0}
     <div class="flex gap-3 mb-4 flex-wrap">
       {#each filterOptions.accounts as account}
-        <div class="flex items-center gap-2 px-3 py-2 bg-va-subtle border border-va-border rounded-lg">
-          <span class="text-xs text-va-muted" class:privacy-blur={privacyOn}>{account.name}</span>
+        {@const selected = filters.account_ids.includes(account.id)}
+        <button
+          type="button"
+          onclick={() => toggleAccountFilter(account.id)}
+          class="flex items-center gap-2 px-3 py-2 rounded-lg border transition-all {selected ? 'bg-va-accent/15 border-va-accent' : 'bg-va-subtle border-va-border hover:border-va-muted'}"
+          title={selected ? 'Click to stop filtering by this account' : 'Click to filter by this account'}
+        >
+          <span class="text-xs {selected ? 'text-va-accent' : 'text-va-muted'}" class:privacy-blur={privacyOn}>{account.name}</span>
           <span class="text-sm font-medium {account.balance && parseFloat(account.balance) >= 0 ? 'text-va-success' : 'text-va-danger'}" class:privacy-blur={privacyOn}>
             {account.balance != null ? formatCurrency(parseFloat(account.balance)) : '-'}
           </span>
-        </div>
+        </button>
       {/each}
     </div>
   {/if}
@@ -758,17 +789,6 @@
       <!-- Collapsible Filters -->
       {#if showFilters}
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-va-border">
-          <!-- Account -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Account</label>
-            <select bind:value={filters.account_id} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All accounts</option>
-              {#each filterOptions.accounts as account}
-                <option value={account.id}>{account.name}</option>
-              {/each}
-            </select>
-          </div>
-
           <!-- Category -->
           <div>
             <label class="block text-xs text-va-muted mb-1">Category</label>
