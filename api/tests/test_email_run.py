@@ -69,7 +69,7 @@ def env(tmp_path, monkeypatch):
     db.add(run)
     db.flush()
     for i in range(2):
-        db.add(Document(
+        run.documents.append(Document(
             filename=f"inv{i}.pdf", s3_key=f"documents/{i}.pdf", content_type="application/pdf",
             file_size=5, doc_type="purchase_invoice", run_id=run.id, source_id=src.id,
         ))
@@ -122,7 +122,7 @@ def test_emails_several_runs_at_once(env):
     other = InvoiceFetchRun(source_id=1, status="completed")
     db.add(other)
     db.flush()
-    db.add(Document(
+    other.documents.append(Document(
         filename="other.pdf", s3_key="documents/other.pdf", content_type="application/pdf",
         file_size=5, doc_type="purchase_invoice", run_id=other.id, source_id=1,
     ))

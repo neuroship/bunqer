@@ -28,6 +28,7 @@ from ..models import (
     get_provider_settings,
     require_provider,
 )
+from ..models.invoice_source import run_documents as run_docs_table
 from ..services import gmail_fetcher, invoice_email, s3
 from ..services.invoice_fetch_runner import is_running, run_all, run_source
 
@@ -155,11 +156,11 @@ async def list_runs(
 
 @router.delete("/runs/cleanup")
 async def cleanup_runs(db: Session = Depends(get_db)):
-    """Delete finished runs that failed or stored no documents."""
+    """Delete finished runs that failed or found no documents."""
     runs = (
         db.query(InvoiceFetchRun)
         .filter(InvoiceFetchRun.status != RunStatus.RUNNING.value)
-        .filter((InvoiceFetchRun.status == RunStatus.FAILED.value) | (InvoiceFetchRun.documents_new == 0))
+        .filter((InvoiceFetchRun.status == RunStatus.FAILED.value) | (InvoiceFetchRun.documents_found == 0))
         .all()
     )
     doomed = [r for r in runs if not is_running(r.source_id) or r.status != RunStatus.RUNNING.value]
@@ -190,7 +191,7 @@ async def run_documents(run_id: int, db: Session = Depends(get_db)):
     docs = (
         db.query(Document)
         .options(selectinload(Document.transactions))
-        .filter(Document.run_id == run_id)
+        .filter(Document.id.in_(db.query(run_docs_table.c.document_id).filter(run_docs_table.c.run_id == run_id)))
         .order_by(Document.invoice_date.desc().nullslast(), Document.id.desc())
         .all()
     )
@@ -244,8 +245,8 @@ async def email_runs(body: EmailRunsRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "No runs selected")
     docs = (
         db.query(Document)
-        .filter(Document.run_id.in_(body.run_ids))
-        .order_by(Document.run_id, Document.id)
+        .filter(Document.id.in_(db.query(run_docs_table.c.document_id).filter(run_docs_table.c.run_id.in_(body.run_ids))))
+        .order_by(Document.id)
         .all()
     )
     if not docs:
@@ -261,7 +262,7 @@ async def email_run(run_id: int, body: EmailRunRequest, db: Session = Depends(ge
     run = db.query(InvoiceFetchRun).get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
-    docs = db.query(Document).filter(Document.run_id == run_id).order_by(Document.id).all()
+    docs = run.documents
     if not docs:
         raise HTTPException(400, "This run has no documents to send")
 

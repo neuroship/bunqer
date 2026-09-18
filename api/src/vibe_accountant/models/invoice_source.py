@@ -4,7 +4,7 @@ from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -56,6 +56,15 @@ class InvoiceSource(Base):
     )
 
 
+# Every document a run found, whether the file was new or already stored by an earlier run.
+run_documents = Table(
+    "run_documents",
+    Base.metadata,
+    Column("run_id", Integer, ForeignKey("invoice_fetch_runs.id", ondelete="CASCADE"), primary_key=True),
+    Column("document_id", Integer, ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class InvoiceFetchRun(Base):
     """One execution of a source."""
 
@@ -78,6 +87,7 @@ class InvoiceFetchRun(Base):
     browserbase_session_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     source: Mapped["InvoiceSource"] = relationship("InvoiceSource", back_populates="runs")
+    documents: Mapped[list["Document"]] = relationship("Document", secondary=run_documents, order_by="Document.id")  # noqa: F821
 
 
 # --- Pydantic schemas ---

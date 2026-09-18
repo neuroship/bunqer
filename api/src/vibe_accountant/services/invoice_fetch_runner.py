@@ -107,23 +107,20 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
         run.documents_found = len(files)
         new_ids: list[int] = []
         for filename, data, origin_ref in files:
-            known = db.query(Document).filter(Document.origin_ref == origin_ref).first()
-            if known:
-                if known.run_id is None:
-                    known.run_id = run.id  # its original run was deleted; show it under this one
-                    db.commit()
-                continue
-            doc, created = ingest_document_bytes(
-                db, data, filename, "application/pdf", "purchase_invoice",
-                source_id=source.id, origin_ref=origin_ref, run_id=run.id,
-            )
-            if created:
-                new_ids.append(doc.id)
-            elif doc.run_id is None:
-                doc.run_id = run.id  # already known file, still attribute it to this run
-                db.commit()
+            doc = db.query(Document).filter(Document.origin_ref == origin_ref).first()
+            if doc is None:
+                doc, created = ingest_document_bytes(
+                    db, data, filename, "application/pdf", "purchase_invoice",
+                    source_id=source.id, origin_ref=origin_ref, run_id=run.id,
+                )
+                if created:
+                    new_ids.append(doc.id)
+            if doc not in run.documents:
+                run.documents.append(doc)  # the run lists everything it found, new or already stored
+        db.commit()
         run.documents_new = len(new_ids)
-        log(f"{len(new_ids)} new document(s) stored")
+        run_doc_ids = {d.id for d in run.documents}
+        log(f"{len(new_ids)} new document(s) stored, {len(run_doc_ids)} listed for this run")
 
         if new_ids:
             from ..routes.documents import _process_document
@@ -133,15 +130,15 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
             log("OCR + extraction complete")
             report = match_documents_to_transactions(db)
             for amb in report.ambiguous:
-                if amb.document.run_id == run.id:
+                if amb.document.id in run_doc_ids:
                     opts = ", ".join(
                         f"{c.txn.transaction_date.date()} {c.txn.amount}" for c in amb.candidates
                     )
                     log(f"Needs a manual pick: {amb.document.filename} could be {opts}")
-            run.documents_matched = (
-                db.query(Document).filter(Document.run_id == run.id, Document.transactions.any()).count()
-            )
-            log(f"{run.documents_matched} of this run's documents matched to transactions")
+        run.documents_matched = (
+            db.query(Document).filter(Document.id.in_(run_doc_ids), Document.transactions.any()).count()
+        )
+        log(f"{run.documents_matched} of this run's documents matched to transactions")
 
         run.status = RunStatus.COMPLETED.value
         source.last_status = RunStatus.COMPLETED.value

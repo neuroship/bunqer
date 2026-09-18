@@ -264,7 +264,7 @@
 
   // Runs of a quarter group that have documents to send
   function emailableRuns(group) {
-    return group.runs.filter(r => r.status !== 'running' && r.documents_new > 0)
+    return group.runs.filter(r => r.status !== 'running' && r.documents_found > 0)
   }
 
   function openEmailGroup(group) {
@@ -273,7 +273,7 @@
       group: true,
       label: group.label,
       run_ids: sendable.map(r => r.id),
-      documents_new: sendable.reduce((n, r) => n + r.documents_new, 0),
+      documents_found: sendable.reduce((n, r) => n + r.documents_found, 0),
       source_name: `${sendable.length} run${sendable.length === 1 ? '' : 's'}`,
     }
     if (!emailTo) emailTo = savedEmailTo
@@ -555,7 +555,7 @@
       </div>
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-base font-semibold text-va-text">Recent runs</h2>
-        {#if runs.some(r => r.status === 'failed' || (r.status !== 'running' && r.documents_new === 0))}
+        {#if runs.some(r => r.status === 'failed' || (r.status !== 'running' && r.documents_found === 0))}
           <button onclick={cleanupRuns} class="text-xs text-va-muted hover:text-va-danger flex items-center gap-1" title="Delete failed runs and runs without documents">
             <span class="icon-[tabler--trash] w-3.5 h-3.5"></span> Clear failed & empty
           </button>
@@ -619,7 +619,7 @@
                   <td class="text-right {run.documents_new > 0 ? 'text-va-success' : ''}">{run.documents_new}</td>
                   <td class="text-right {run.documents_matched > 0 ? 'text-va-success' : ''}">{run.documents_matched}</td>
                   <td class="text-right whitespace-nowrap">
-                    {#if run.status !== 'running' && run.documents_new > 0}
+                    {#if run.status !== 'running' && run.documents_found > 0}
                       <button
                         onclick={(e) => { e.stopPropagation(); openEmail(run) }}
                         class="text-va-muted hover:text-va-accent mr-1"
@@ -724,7 +724,7 @@
 <!-- Email run documents modal -->
 <Modal show={!!emailTarget} title={emailTarget?.group ? `Email all invoices of ${emailTarget.label}` : `Email invoices from ${emailTarget?.source_name || ''}`} size="sm" onClose={() => emailTarget = null}>
   {#if emailTarget}
-    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_new} document(s) of {emailTarget.group ? `${emailTarget.source_name} in ${emailTarget.label}` : `this run (${quarterLabel(emailTarget)})`} as attachments{emailSender ? ` from ${emailSender}` : ''}.</p>
+    <p class="text-xs text-va-muted mb-3">Sends the {emailTarget.documents_found} document(s) of {emailTarget.group ? `${emailTarget.source_name} in ${emailTarget.label}` : `this run (${quarterLabel(emailTarget)})`} as attachments{emailSender ? ` from ${emailSender}` : ''}.</p>
     {#if !emailSender}
       <div class="rounded-md border border-va-warning/40 bg-va-warning/10 p-3 mb-3 text-xs text-va-text">
         {#if emailReconnect}
