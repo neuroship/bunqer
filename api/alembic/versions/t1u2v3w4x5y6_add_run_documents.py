@@ -26,7 +26,7 @@ def upgrade() -> None:
     )
     op.execute(
         "INSERT INTO run_documents (run_id, document_id) "
-        "SELECT run_id, id FROM documents WHERE run_id IS NOT NULL"
+        "SELECT run_id, id FROM documents WHERE run_id IS NOT NULL ON CONFLICT DO NOTHING"
     )
 
 
