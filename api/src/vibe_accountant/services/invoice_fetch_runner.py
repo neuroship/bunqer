@@ -107,7 +107,11 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
         run.documents_found = len(files)
         new_ids: list[int] = []
         for filename, data, origin_ref in files:
-            if db.query(Document.id).filter(Document.origin_ref == origin_ref).first():
+            known = db.query(Document).filter(Document.origin_ref == origin_ref).first()
+            if known:
+                if known.run_id is None:
+                    known.run_id = run.id  # its original run was deleted; show it under this one
+                    db.commit()
                 continue
             doc, created = ingest_document_bytes(
                 db, data, filename, "application/pdf", "purchase_invoice",
