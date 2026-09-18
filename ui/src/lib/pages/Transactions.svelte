@@ -67,12 +67,6 @@
     }
   }
 
-  // Collapsed filter sections - auto-open if filters are active from localStorage
-  let showFilters = $state(
-    filters.account_ids.length || filters.category_id || filters.direction || filters.tag || filters.year || filters.month || filters.quarter ||
-    filters.min_amount || filters.max_amount || filters.has_document
-  )
-
   // Sorting state
   let sortBy = $state('')
   let sortOrder = $state('')
@@ -643,12 +637,6 @@
           </div>
         {/if}
       </div>
-      <button
-        onclick={() => showFilters = !showFilters}
-        class="text-sm px-4 py-2 rounded-lg border-2 transition-all font-medium {showFilters ? 'bg-va-accent/15 border-va-accent text-va-accent' : 'bg-va-subtle border-va-border text-va-muted hover:text-va-text hover:border-va-muted'}"
-      >
-        Filters {hasActiveFilters ? '•' : ''}
-      </button>
       <!-- Column Settings -->
       <div class="relative" data-column-settings>
         <button 
@@ -786,122 +774,120 @@
         class="input input-sm bg-va-canvas border-va-border text-va-text"
       />
 
-      <!-- Collapsible Filters -->
-      {#if showFilters}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-va-border">
-          <!-- Category -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Category</label>
-            <select bind:value={filters.category_id} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All categories</option>
-              <option value="none">Uncategorized</option>
-              {#each filterOptions.categories || [] as category}
-                <option value={category.id}>{category.name}</option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- Direction -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Direction</label>
-            <select bind:value={filters.direction} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All</option>
-              <option value="in">Income</option>
-              <option value="out">Expense</option>
-            </select>
-          </div>
-
-          <!-- Document Match -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Document</label>
-            <select bind:value={filters.has_document} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All</option>
-              <option value="yes">Has document</option>
-              <option value="no">No document</option>
-            </select>
-          </div>
-
-          <!-- Tag -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Tag</label>
-            <select bind:value={filters.tag} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All tags</option>
-              <option value="none">No tag</option>
-              {#each filterOptions.tags || [] as t}
-                <option value={t}>{t}</option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- Year -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Year</label>
-            <select bind:value={filters.year} onchange={(e) => { if (!filters.year) { filters.month = ''; filters.quarter = '' } handleFilterSelect(e) }} class="input input-sm bg-va-canvas border-va-border text-va-text">
-              <option value="">All years</option>
-              {#each filterOptions.years || [] as y}
-                <option value={y}>{y}</option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- Quarter -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Quarter</label>
-            <select bind:value={filters.quarter} onchange={(e) => { if (filters.quarter) filters.month = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
-              <option value="">All quarters</option>
-              <option value="1">Q1 (Jan–Mar)</option>
-              <option value="2">Q2 (Apr–Jun)</option>
-              <option value="3">Q3 (Jul–Sep)</option>
-              <option value="4">Q4 (Oct–Dec)</option>
-            </select>
-          </div>
-
-          <!-- Month -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Month</label>
-            <select bind:value={filters.month} onchange={(e) => { if (filters.month) filters.quarter = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
-              <option value="">All months</option>
-              <option value="1">January</option>
-              <option value="2">February</option>
-              <option value="3">March</option>
-              <option value="4">April</option>
-              <option value="5">May</option>
-              <option value="6">June</option>
-              <option value="7">July</option>
-              <option value="8">August</option>
-              <option value="9">September</option>
-              <option value="10">October</option>
-              <option value="11">November</option>
-              <option value="12">December</option>
-            </select>
-          </div>
-
-          <!-- Amount Range -->
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Min Amount</label>
-            <input 
-              type="number" 
-              placeholder="0.00"
-              bind:value={filters.min_amount} 
-              onchange={handleFilterSelect}
-              class="input input-sm bg-va-canvas border-va-border text-va-text"
-              step="0.01"
-            />
-          </div>
-
-          <div>
-            <label class="block text-xs text-va-muted mb-1">Max Amount</label>
-            <input 
-              type="number" 
-              placeholder="0.00"
-              bind:value={filters.max_amount} 
-              onchange={handleFilterSelect}
-              class="input input-sm bg-va-canvas border-va-border text-va-text"
-              step="0.01"
-            />
-          </div>
+      <!-- Filters -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-va-border">
+        <!-- Category -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Category</label>
+          <select bind:value={filters.category_id} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+            <option value="">All categories</option>
+            <option value="none">Uncategorized</option>
+            {#each filterOptions.categories || [] as category}
+              <option value={category.id}>{category.name}</option>
+            {/each}
+          </select>
         </div>
-      {/if}
+
+        <!-- Direction -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Direction</label>
+          <select bind:value={filters.direction} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+            <option value="">All</option>
+            <option value="in">Income</option>
+            <option value="out">Expense</option>
+          </select>
+        </div>
+
+        <!-- Document Match -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Document</label>
+          <select bind:value={filters.has_document} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+            <option value="">All</option>
+            <option value="yes">Has document</option>
+            <option value="no">No document</option>
+          </select>
+        </div>
+
+        <!-- Tag -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Tag</label>
+          <select bind:value={filters.tag} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
+            <option value="">All tags</option>
+            <option value="none">No tag</option>
+            {#each filterOptions.tags || [] as t}
+              <option value={t}>{t}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Year -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Year</label>
+          <select bind:value={filters.year} onchange={(e) => { if (!filters.year) { filters.month = ''; filters.quarter = '' } handleFilterSelect(e) }} class="input input-sm bg-va-canvas border-va-border text-va-text">
+            <option value="">All years</option>
+            {#each filterOptions.years || [] as y}
+              <option value={y}>{y}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Quarter -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Quarter</label>
+          <select bind:value={filters.quarter} onchange={(e) => { if (filters.quarter) filters.month = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
+            <option value="">All quarters</option>
+            <option value="1">Q1 (Jan–Mar)</option>
+            <option value="2">Q2 (Apr–Jun)</option>
+            <option value="3">Q3 (Jul–Sep)</option>
+            <option value="4">Q4 (Oct–Dec)</option>
+          </select>
+        </div>
+
+        <!-- Month -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Month</label>
+          <select bind:value={filters.month} onchange={(e) => { if (filters.month) filters.quarter = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
+            <option value="">All months</option>
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+
+        <!-- Amount Range -->
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Min Amount</label>
+          <input 
+            type="number" 
+            placeholder="0.00"
+            bind:value={filters.min_amount} 
+            onchange={handleFilterSelect}
+            class="input input-sm bg-va-canvas border-va-border text-va-text"
+            step="0.01"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs text-va-muted mb-1">Max Amount</label>
+          <input 
+            type="number" 
+            placeholder="0.00"
+            bind:value={filters.max_amount} 
+            onchange={handleFilterSelect}
+            class="input input-sm bg-va-canvas border-va-border text-va-text"
+            step="0.01"
+          />
+        </div>
+      </div>
     </div>
   </Card>
 
