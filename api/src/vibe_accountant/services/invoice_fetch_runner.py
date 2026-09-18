@@ -1,6 +1,7 @@
 """Run invoice sources: fetch files, ingest as documents, OCR, and match to transactions."""
 
 import asyncio
+import hashlib
 import traceback
 from datetime import date, datetime, timedelta
 
@@ -107,7 +108,12 @@ async def run_source(source_id: int, date_from: date | None = None, date_to: dat
         run.documents_found = len(files)
         new_ids: list[int] = []
         for filename, data, origin_ref in files:
-            doc = db.query(Document).filter(Document.origin_ref == origin_ref).first()
+            # Same bytes = same document. Rendered email bodies differ per render, so for
+            # those fall back to the origin reference (portal/attachment refs are not trusted:
+            # an earlier mispairing could hide a file that was never stored).
+            doc = db.query(Document).filter(Document.content_hash == hashlib.sha256(data).hexdigest()).first()
+            if doc is None and origin_ref.endswith(":body"):
+                doc = db.query(Document).filter(Document.origin_ref == origin_ref).first()
             if doc is None:
                 doc, created = ingest_document_bytes(
                     db, data, filename, "application/pdf", "purchase_invoice",
