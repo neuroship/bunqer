@@ -764,20 +764,65 @@
   {/if}
 
   <!-- Search & Filters -->
+  {#snippet segmented(label, value, options, onSelect, disabled = false)}
+    <div class:opacity-40={disabled}>
+      <span class="block text-xs text-va-muted mb-1">{label}</span>
+      <div class="inline-flex rounded-lg border border-va-border bg-va-canvas p-0.5 gap-0.5">
+        {#each options as opt}
+          <button
+            type="button"
+            {disabled}
+            onclick={() => onSelect(value === opt.value ? '' : opt.value)}
+            class="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-all disabled:cursor-not-allowed {value === opt.value ? 'bg-va-accent/15 text-va-accent font-medium' : 'text-va-muted hover:text-va-text hover:bg-va-hover'}"
+          >
+            {#if opt.icon}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={opt.icon} />
+              </svg>
+            {/if}
+            {opt.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/snippet}
+
   <Card class="mb-4">
     <div class="space-y-3">
       <!-- Search -->
-      <input
-        type="text"
-        placeholder="Search description, counterparty..."
-        bind:value={filters.query}
-        class="input input-sm bg-va-canvas border-va-border text-va-text"
-      />
+      <div class="relative">
+        <svg class="w-4 h-4 text-va-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Search description, counterparty..."
+          bind:value={filters.query}
+          class="input input-sm bg-va-canvas border-va-border text-va-text pl-9"
+        />
+        {#if filters.query}
+          <button type="button" onclick={() => filters.query = ''} class="absolute right-2 top-1/2 -translate-y-1/2 text-va-muted hover:text-va-text" title="Clear search">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        {/if}
+      </div>
 
       <!-- Filters -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-va-border">
+      <div class="flex flex-wrap items-end gap-x-5 gap-y-3 pt-3 border-t border-va-border">
+        {@render segmented('Direction', filters.direction, [
+          { value: 'in', label: 'Income', icon: 'M19 14l-7 7m0 0l-7-7m7 7V3' },
+          { value: 'out', label: 'Expense', icon: 'M5 10l7-7m0 0l7 7m-7-7v18' },
+        ], (v) => { filters.direction = v; handleFilterSelect() })}
+
+        {@render segmented('Document', filters.has_document, [
+          { value: 'yes', label: 'Attached', icon: 'M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13' },
+          { value: 'no', label: 'Missing', icon: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636' },
+        ], (v) => { filters.has_document = v; handleFilterSelect() })}
+
         <!-- Category -->
-        <div>
+        <div class="min-w-[10rem]">
           <label class="block text-xs text-va-muted mb-1">Category</label>
           <select bind:value={filters.category_id} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
             <option value="">All categories</option>
@@ -788,28 +833,8 @@
           </select>
         </div>
 
-        <!-- Direction -->
-        <div>
-          <label class="block text-xs text-va-muted mb-1">Direction</label>
-          <select bind:value={filters.direction} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-            <option value="">All</option>
-            <option value="in">Income</option>
-            <option value="out">Expense</option>
-          </select>
-        </div>
-
-        <!-- Document Match -->
-        <div>
-          <label class="block text-xs text-va-muted mb-1">Document</label>
-          <select bind:value={filters.has_document} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
-            <option value="">All</option>
-            <option value="yes">Has document</option>
-            <option value="no">No document</option>
-          </select>
-        </div>
-
         <!-- Tag -->
-        <div>
+        <div class="min-w-[8rem]">
           <label class="block text-xs text-va-muted mb-1">Tag</label>
           <select bind:value={filters.tag} onchange={handleFilterSelect} class="input input-sm bg-va-canvas border-va-border text-va-text">
             <option value="">All tags</option>
@@ -820,8 +845,8 @@
           </select>
         </div>
 
-        <!-- Year -->
-        <div>
+        <!-- Period -->
+        <div class="min-w-[6rem]">
           <label class="block text-xs text-va-muted mb-1">Year</label>
           <select bind:value={filters.year} onchange={(e) => { if (!filters.year) { filters.month = ''; filters.quarter = '' } handleFilterSelect(e) }} class="input input-sm bg-va-canvas border-va-border text-va-text">
             <option value="">All years</option>
@@ -831,61 +856,37 @@
           </select>
         </div>
 
-        <!-- Quarter -->
-        <div>
-          <label class="block text-xs text-va-muted mb-1">Quarter</label>
-          <select bind:value={filters.quarter} onchange={(e) => { if (filters.quarter) filters.month = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
-            <option value="">All quarters</option>
-            <option value="1">Q1 (Jan–Mar)</option>
-            <option value="2">Q2 (Apr–Jun)</option>
-            <option value="3">Q3 (Jul–Sep)</option>
-            <option value="4">Q4 (Oct–Dec)</option>
-          </select>
-        </div>
+        {@render segmented('Quarter', filters.quarter, [
+          { value: '1', label: 'Q1' },
+          { value: '2', label: 'Q2' },
+          { value: '3', label: 'Q3' },
+          { value: '4', label: 'Q4' },
+        ], (v) => { filters.quarter = v; if (v) filters.month = ''; handleFilterSelect() }, !filters.year)}
 
-        <!-- Month -->
-        <div>
+        <div class="min-w-[8rem]">
           <label class="block text-xs text-va-muted mb-1">Month</label>
           <select bind:value={filters.month} onchange={(e) => { if (filters.month) filters.quarter = ''; handleFilterSelect(e) }} disabled={!filters.year} class="input input-sm bg-va-canvas border-va-border text-va-text disabled:opacity-40">
             <option value="">All months</option>
-            <option value="1">January</option>
-            <option value="2">February</option>
-            <option value="3">March</option>
-            <option value="4">April</option>
-            <option value="5">May</option>
-            <option value="6">June</option>
-            <option value="7">July</option>
-            <option value="8">August</option>
-            <option value="9">September</option>
-            <option value="10">October</option>
-            <option value="11">November</option>
-            <option value="12">December</option>
+            {#each ['January','February','March','April','May','June','July','August','September','October','November','December'] as m, i}
+              <option value={String(i + 1)}>{m}</option>
+            {/each}
           </select>
         </div>
 
         <!-- Amount Range -->
         <div>
-          <label class="block text-xs text-va-muted mb-1">Min Amount</label>
-          <input 
-            type="number" 
-            placeholder="0.00"
-            bind:value={filters.min_amount} 
-            onchange={handleFilterSelect}
-            class="input input-sm bg-va-canvas border-va-border text-va-text"
-            step="0.01"
-          />
-        </div>
-
-        <div>
-          <label class="block text-xs text-va-muted mb-1">Max Amount</label>
-          <input 
-            type="number" 
-            placeholder="0.00"
-            bind:value={filters.max_amount} 
-            onchange={handleFilterSelect}
-            class="input input-sm bg-va-canvas border-va-border text-va-text"
-            step="0.01"
-          />
+          <label class="block text-xs text-va-muted mb-1">Amount</label>
+          <div class="flex items-center gap-1.5">
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-va-muted pointer-events-none">€</span>
+              <input type="number" placeholder="Min" bind:value={filters.min_amount} onchange={handleFilterSelect} step="0.01" class="input input-sm w-24 pl-6 bg-va-canvas border-va-border text-va-text" />
+            </div>
+            <span class="text-xs text-va-muted">–</span>
+            <div class="relative">
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-va-muted pointer-events-none">€</span>
+              <input type="number" placeholder="Max" bind:value={filters.max_amount} onchange={handleFilterSelect} step="0.01" class="input input-sm w-24 pl-6 bg-va-canvas border-va-border text-va-text" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
