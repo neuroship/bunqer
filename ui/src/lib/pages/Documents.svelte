@@ -3,6 +3,7 @@
   import Card from '../components/Card.svelte'
   import Button from '../components/Button.svelte'
   import Modal from '../components/Modal.svelte'
+  import Input from '../components/Input.svelte'
   import api from '../api.js'
 
   let { openDocumentId = $bindable(null) } = $props()
@@ -29,6 +30,13 @@
   let showDetailModal = $state(false)
   let selectedDoc = $state(null)
   let detailLoading = $state(false)
+
+  // Email document modal
+  let emailTarget = $state(null)
+  let emailTo = $state('')
+  let emailSender = $state(null)      // Gmail address that will send, or null
+  let emailReconnect = $state(null)   // {id, name} of a source that must be reconnected to send
+  let sending = $state(false)
 
   // Duplicates
   let showDuplicatesModal = $state(false)
@@ -155,6 +163,41 @@
       showDetailModal = false
     } finally {
       detailLoading = false
+    }
+  }
+
+  async function openEmail(doc) {
+    emailTarget = doc
+    try {
+      const status = await api.invoiceSources.emailRecipient()
+      if (!emailTo) emailTo = status.to || ''
+      emailSender = status.sender
+      emailReconnect = status.reconnect
+    } catch {
+      // prefill only
+    }
+  }
+
+  async function reconnectGmail() {
+    try {
+      const { url } = await api.invoiceSources.gmailAuthUrl(emailReconnect.id)
+      window.location.href = url
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    }
+  }
+
+  async function sendEmail() {
+    if (!emailTarget || !emailTo.trim()) return
+    sending = true
+    try {
+      const res = await api.documents.email(emailTarget.id, emailTo.trim())
+      window.showToast?.(res.detail, 'success')
+      emailTarget = null
+    } catch (error) {
+      window.showToast?.(error.message, 'error')
+    } finally {
+      sending = false
     }
   }
 
@@ -640,6 +683,10 @@
           <span class="icon-[tabler--external-link] w-4 h-4 mr-1"></span>
           View Original
         </Button>
+        <Button variant="secondary" onclick={() => openEmail(selectedDoc)} title="Email this document as an attachment">
+          <span class="icon-[tabler--mail] w-4 h-4 mr-1"></span>
+          Email
+        </Button>
         {#if selectedDoc.status === 'failed' || selectedDoc.status === 'completed'}
           <Button variant="secondary" onclick={() => { reprocessDoc(selectedDoc); showDetailModal = false }}>
             <span class="icon-[tabler--refresh] w-4 h-4 mr-1"></span>
@@ -651,6 +698,28 @@
           Delete
         </Button>
       </div>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Email document modal -->
+<Modal show={!!emailTarget} title="Email {emailTarget?.filename || 'document'}" size="sm" onClose={() => emailTarget = null}>
+  {#if emailTarget}
+    <p class="text-xs text-va-muted mb-3">Sends the file as an attachment{emailSender ? ` from ${emailSender}` : ''}.</p>
+    {#if !emailSender}
+      <div class="rounded-md border border-va-warning/40 bg-va-warning/10 p-3 mb-3 text-xs text-va-text">
+        {#if emailReconnect}
+          <p>Gmail on '{emailReconnect.name}' was connected before sending was supported. Reconnect once to grant the send permission.</p>
+          <Button variant="secondary" onclick={reconnectGmail}>Reconnect Gmail</Button>
+        {:else}
+          <p>Connect a Gmail source under Auto-Fetch first; it is used to send the email.</p>
+        {/if}
+      </div>
+    {/if}
+    <Input type="email" multiple label="Send to" bind:value={emailTo} placeholder="accountant@example.com, you@example.com" required />
+    <div class="flex justify-end gap-2">
+      <Button variant="secondary" onclick={() => emailTarget = null}>Cancel</Button>
+      <Button onclick={sendEmail} loading={sending} disabled={!emailTo.trim() || !emailSender}>Send</Button>
     </div>
   {/if}
 </Modal>

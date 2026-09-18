@@ -9,13 +9,14 @@ from decimal import Decimal
 from difflib import SequenceMatcher
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..database import get_db
 from ..logger import logger
 from ..models import Document, DocumentListResponse, DocumentResponse, DocumentStatus, DocumentType, MatchedTransactionInfo, Transaction
-from ..services import s3
+from ..services import invoice_email, s3
 from ..services.document_processor import (
     denormalize_fields,
     extract_structured_data,
@@ -361,6 +362,25 @@ async def update_document(
 
     db.refresh(doc)
     return DocumentResponse.model_validate(doc)
+
+
+class EmailDocumentRequest(BaseModel):
+    to: str
+
+
+@router.post("/{doc_id}/email")
+async def email_document(doc_id: int, body: EmailDocumentRequest, db: Session = Depends(get_db)):
+    """Email one document as an attachment, via the first Gmail source that can send."""
+    from .invoice_sources import _email_documents
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    to = invoice_email.clean_address(body.to)
+    label = doc.vendor_name or doc.filename
+    if doc.invoice_date:
+        label += f", {doc.invoice_date}"
+    return await _email_documents(db, to, f"Invoice: {label}", "Attached:", [doc])
 
 
 @router.get("/{doc_id}/view-url")

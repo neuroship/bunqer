@@ -435,6 +435,7 @@ export const documents = {
   },
   updateType: (id, docType, reprocess = false) => request(`/documents/${id}?doc_type=${encodeURIComponent(docType)}&reprocess=${reprocess}`, { method: 'PATCH' }),
   getViewUrl: (id) => request(`/documents/${id}/view-url`),
+  email: (id, to) => request(`/documents/${id}/email`, { method: 'POST', body: { to }, timeoutMs: 180_000 }),
   reprocess: (id) => request(`/documents/${id}/reprocess`, { method: 'POST' }),
   delete: (id) => request(`/documents/${id}`, { method: 'DELETE' }),
   findDuplicates: () => request('/documents/duplicates/find'),
