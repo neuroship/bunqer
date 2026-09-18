@@ -1,6 +1,8 @@
 """Log into a vendor portal with Browserbase + Stagehand and download invoice PDFs."""
 
+import asyncio
 import base64
+import hashlib
 import io
 import zipfile
 from collections.abc import Callable
@@ -222,32 +224,38 @@ def _safe_filename(title: str, idx: int) -> str:
     return base[:120] + ("" if base.lower().endswith(".pdf") else ".pdf")
 
 
-def _session_downloads(
-    api_key: str, session_id: str, log: Callable[[str], None], expected: int = 0, attempts: int = 4
-) -> list[tuple[str, bytes]]:
-    """Pull files the browser downloaded during the session (zip from Browserbase).
+def _new_downloads(api_key: str, session_id: str, seen: set[str]) -> list[tuple[str, bytes]]:
+    """Session downloads not yet in `seen`; marks them seen. Keyed by name + content hash."""
+    fresh = []
+    for name, data in _read_downloads_zip(api_key, session_id):
+        key = f"{name}:{hashlib.sha256(data).hexdigest()}"
+        if key not in seen:
+            seen.add(key)
+            fresh.append((name, data))
+    return fresh
 
-    Files sync with a delay, so retry until `expected` PDFs are present.
+
+async def _wait_for_new_download(
+    api_key: str, session_id: str, seen: set[str], attempts: int = 5, delay: float = 3.0
+) -> tuple[str, bytes] | None:
+    """Poll Browserbase until one file the previous clicks did not produce shows up.
+
+    Browserbase syncs downloads with a delay, so pairing a click with its file means
+    waiting for exactly one new entry before the next click.
     """
-    import time
-
-    files: list[tuple[str, bytes]] = []
-    for attempt in range(attempts):
-        files = _read_downloads_zip(api_key, session_id, log)
-        if len(files) >= expected or attempt == attempts - 1:
-            break
-        time.sleep(4)
-    if files:
-        log(f"{len(files)} PDF(s) captured from browser downloads")
-    return files
+    for _ in range(attempts):
+        await asyncio.sleep(delay)
+        fresh = await asyncio.to_thread(_new_downloads, api_key, session_id, seen)
+        if fresh:
+            return fresh[0]
+    return None
 
 
-def _read_downloads_zip(api_key: str, session_id: str, log: Callable[[str], None]) -> list[tuple[str, bytes]]:
+def _read_downloads_zip(api_key: str, session_id: str) -> list[tuple[str, bytes]]:
     try:
         resp = Browserbase(api_key=api_key).sessions.downloads.list(session_id)
         raw = resp.read()
-    except Exception as e:  # noqa: BLE001
-        log(f"No session downloads yet: {e}")
+    except Exception:  # noqa: BLE001
         return []
     files = []
     try:
@@ -417,6 +425,7 @@ async def fetch_website_invoices(
                 )
 
             clicked: list[InvoiceLink] = []
+            seen: set[str] = set()  # download keys already paired or stored
             for idx, link in enumerate(links):
                 label = f"{link.title} ({link.invoice_date or 'no date'}, {link.amount or 'no amount'})"
                 if link.pdf_url:
@@ -441,24 +450,24 @@ async def fetch_website_invoices(
                 if ok:
                     clicked.append(link)
                     log(f"Clicked download for {label}")
-                    await page.wait_for_timeout(2500)
+                    fresh = await _wait_for_new_download(providers["browserbase_api_key"], session_id, seen)
+                    if fresh:
+                        results.append((
+                            _safe_filename(link.title, idx), fresh[1],
+                            f"web:{login_url}:{link.invoice_date}:{link.amount}:{link.title}",
+                        ))
+                        log(f"Downloaded {label}")
+                    else:
+                        log(f"No new file appeared for {label}; will store it unpaired if it shows up later")
 
             if clicked:
-                await page.wait_for_timeout(4000)
-                downloaded = _session_downloads(
-                    providers["browserbase_api_key"], session_id, log, expected=len(clicked)
-                )
-                paired = len(downloaded) == len(clicked)
-                for idx, (name, data) in enumerate(downloaded):
-                    link = clicked[idx] if paired else None
-                    filename = _safe_filename(link.title, idx) if link else _safe_filename(name, idx)
-                    origin_ref = (
-                        f"web:{login_url}:{link.invoice_date}:{link.amount}:{link.title}"
-                        if link else f"web-download:{session_id}:{name}"
-                    )
-                    results.append((filename, data, origin_ref))
-                if not paired:
-                    log(f"{len(downloaded)} file(s) for {len(clicked)} click(s); stored without pairing")
+                await asyncio.sleep(4)
+                stragglers = _new_downloads(providers["browserbase_api_key"], session_id, seen)
+                for idx, (name, data) in enumerate(stragglers):
+                    results.append((_safe_filename(name, idx), data, f"web-download:{session_id}:{name}"))
+                if stragglers:
+                    log(f"{len(stragglers)} late file(s) stored without pairing")
+                log(f"{len(results)} PDF(s) captured from browser downloads")
         finally:
             await stagehand.close()
     finally:
